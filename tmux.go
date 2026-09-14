@@ -138,7 +138,7 @@ func openSidebar(bin, windowID, width string) error {
 	if _, err = tmux("set-option", "-p", "-t", id, "@sentinela_sidebar", "1"); err != nil {
 		return err
 	}
-	paintSidebar(id)
+	paintSidebar(id, string(loadTheme(globalOptions()).background))
 	return configureSidebarName(id)
 }
 
@@ -159,20 +159,15 @@ func configureSidebarName(paneID string) error {
 	return err
 }
 
-// paintSidebar gives the pane an opaque background (@sentinela_bg, else
-// @th_base) so it stands out from transparent terminal panes.
-func paintSidebar(paneID string) {
-	o := globalOptions()
-	bg := o["@sentinela_bg"]
-	if bg == "" {
-		bg = o["@th_base"]
-	}
-	if bg == "" {
-		return
-	}
+// An empty background restores inheritance from the window's styles.
+func paintSidebar(paneID, background string) {
 	// Same options select-pane -P sets, without stealing focus like it does.
 	for _, opt := range []string{"window-style", "window-active-style"} {
-		tmux("set-option", "-p", "-t", paneID, opt, "bg="+bg)
+		if background == "" {
+			tmux("set-option", "-pu", "-t", paneID, opt)
+		} else {
+			tmux("set-option", "-p", "-t", paneID, opt, "bg="+background)
+		}
 	}
 }
 

@@ -114,7 +114,10 @@ would without the plugin.
 | `@sentinela_color_alert` | `@th_alert` | blocked glyph and count |
 
 Colors resolve in order: `@sentinela_color_*`, then the `@th_*` globals of a
-tmux-wide theme if you keep one, then a rose-pine fallback.
+tmux-wide theme if you keep one, then a rose-pine fallback. Changing them
+applies live to open sidebars: colors are re-read every second, and the pane
+background is repainted only when its resolved color changes. Without
+`@sentinela_bg` or `@th_base`, the sidebar inherits the window's styles.
 
 With tmux-resurrect, to restore the sidebar as a process instead of an empty
 shell: `set -g @resurrect-processes '"~tmux-sentinela sidebar"'`.

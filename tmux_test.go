@@ -87,6 +87,104 @@ func TestSidebarDoesNotNameWindow(t *testing.T) {
 	waitForWindowName(t, run, "updated,0")
 }
 
+func TestSidebarBackgroundFollowsTheme(t *testing.T) {
+	run := isolatedTmux(t)
+	sidebar := run("split-window", "-hd", "-t", "@0", "-P", "-F", "#{pane_id}", "sleep 300")
+	t.Setenv("TMUX_PANE", sidebar)
+	style := func() string {
+		return run("display-message", "-p", "-t", sidebar, "#{window-style}|#{window-active-style}")
+	}
+
+	run("set-option", "-g", "@th_base", "#191724")
+	m := newModel("")
+	paintSidebar(sidebar, string(m.th.background))
+	if got := style(); got != "bg=#191724|bg=#191724" {
+		t.Fatalf("initial style = %q", got)
+	}
+	// The running sidebar's normal refresh must update the stored styles.
+	run("set-option", "-g", "@th_base", "#2e3440")
+	m.refresh()
+	if got := style(); got != "bg=#2e3440|bg=#2e3440" {
+		t.Fatalf("style after theme switch = %q, want the new @th_base", got)
+	}
+	run("set-option", "-g", "@sentinela_bg", "#000000")
+	m.refresh()
+	if got := style(); got != "bg=#000000|bg=#000000" {
+		t.Fatalf("style with @sentinela_bg = %q, want the override", got)
+	}
+	run("set-option", "-g", "@th_base", "#ffffff")
+	m.refresh()
+	if got := style(); got != "bg=#000000|bg=#000000" {
+		t.Fatalf("theme change replaced the explicit background: %q", got)
+	}
+	run("set-option", "-gu", "@sentinela_bg")
+	m.refresh()
+	if got := style(); got != "bg=#ffffff|bg=#ffffff" {
+		t.Fatalf("style after removing override = %q, want the current theme", got)
+	}
+	run("set-option", "-gu", "@th_base")
+	m.refresh()
+	if got := style(); got != "default|default" {
+		t.Fatalf("style without colors = %q, want default", got)
+	}
+	if got := run("display-message", "-p", "-t", "@0", "#{pane_id}"); got != "%0" {
+		t.Fatalf("refresh stole focus from the work pane: %q", got)
+	}
+}
+
+func TestSidebarBackgroundAcceptsBlackIndex(t *testing.T) {
+	run := isolatedTmux(t)
+	run("set-option", "-g", "@th_base", "blue")
+	run("set-option", "-g", "@sentinela_bg", "0")
+	paintSidebar("%0", string(loadTheme(globalOptions()).background))
+	if got := run("display-message", "-p", "-t", "%0", "#{window-style}"); got != "bg=0" {
+		t.Fatalf("black background = %q, want bg=0", got)
+	}
+	run("set-option", "-gu", "@sentinela_bg")
+	run("set-option", "-g", "@th_base", "0")
+	paintSidebar("%0", string(loadTheme(globalOptions()).background))
+	if got := run("display-message", "-p", "-t", "%0", "#{window-style}"); got != "bg=0" {
+		t.Fatalf("black theme background = %q, want bg=0", got)
+	}
+}
+
+func TestSidebarBackgroundInheritsWindowStyle(t *testing.T) {
+	run := isolatedTmux(t)
+	run("set-option", "-w", "-t", "@0", "window-style", "bg=blue")
+	run("set-option", "-w", "-t", "@0", "window-active-style", "bg=red")
+	m := newModel("")
+	paintSidebar("%0", string(m.th.background))
+	style := func() string {
+		return run("display-message", "-p", "-t", "%0", "#{window-style}|#{window-active-style}")
+	}
+	if got := style(); got != "bg=blue|bg=red" {
+		t.Fatalf("initial inherited style = %q, want bg=blue|bg=red", got)
+	}
+	run("set-option", "-g", "@th_base", "green")
+	m.refresh()
+	if got := style(); got != "bg=green|bg=green" {
+		t.Fatalf("style after adding a theme = %q, want bg=green|bg=green", got)
+	}
+	run("set-option", "-gu", "@th_base")
+	m.refresh()
+	if got := style(); got != "bg=blue|bg=red" {
+		t.Fatalf("style after removing theme = %q, want inheritance restored", got)
+	}
+}
+
+func TestSidebarBackgroundRefreshOnlyOnChange(t *testing.T) {
+	run := isolatedTmux(t)
+	run("set-option", "-g", "@th_base", "blue")
+	m := newModel("")
+	paintSidebar("%0", string(m.th.background))
+	run("set-option", "-p", "-t", "%0", "window-style", "bg=red")
+	run("set-option", "-g", "@th_text", "#ffffff")
+	m.refresh()
+	if got := run("display-message", "-p", "-t", "%0", "#{window-style}"); got != "bg=red" {
+		t.Fatalf("unchanged background was repainted: %q", got)
+	}
+}
+
 func TestSidebarPreservesExistingManualName(t *testing.T) {
 	run := isolatedTmux(t)
 	run("rename-window", "-t", "@0", "my work")

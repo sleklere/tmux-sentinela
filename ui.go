@@ -16,6 +16,7 @@ import (
 // of a tmux-wide theme, then rose-pine so the sidebar renders anywhere.
 type theme struct {
 	text, muted, accent, title, busy, busyGlow, alert lipgloss.Color
+	background                                        lipgloss.Color
 }
 
 func loadTheme(o map[string]string) theme {
@@ -29,13 +30,14 @@ func loadTheme(o map[string]string) theme {
 	}
 	busy := pick("@sentinela_color_busy", "@th_accent3", "#ffd166")
 	return theme{
-		text:     pick("@sentinela_color_text", "@th_text", "#e0def4"),
-		muted:    pick("@sentinela_color_muted", "@th_muted", "#908caa"),
-		accent:   pick("@sentinela_color_accent", "@th_accent1", "#9ccfd8"),
-		title:    pick("@sentinela_color_title", "@th_accent2", "#c4a7e7"),
-		busy:     busy,
-		busyGlow: pick("@sentinela_color_busy_glow", "", string(pulseVariant(busy))),
-		alert:    pick("@sentinela_color_alert", "@th_alert", "#eb6f92"),
+		background: pick("@sentinela_bg", "@th_base", ""),
+		text:       pick("@sentinela_color_text", "@th_text", "#e0def4"),
+		muted:      pick("@sentinela_color_muted", "@th_muted", "#908caa"),
+		accent:     pick("@sentinela_color_accent", "@th_accent1", "#9ccfd8"),
+		title:      pick("@sentinela_color_title", "@th_accent2", "#c4a7e7"),
+		busy:       busy,
+		busyGlow:   pick("@sentinela_color_busy_glow", "", string(pulseVariant(busy))),
+		alert:      pick("@sentinela_color_alert", "@th_alert", "#eb6f92"),
 	}
 }
 
@@ -126,7 +128,12 @@ func focusPoll() tea.Msg {
 
 func (m *model) refresh() tea.Cmd {
 	o := globalOptions()
-	m.th, m.notify = loadTheme(o), o["@sentinela_notify"]
+	th := loadTheme(o)
+	// tmux 3.2 caches pane styles even when a referenced @option changes.
+	if m.self != "" && th.background != m.th.background {
+		paintSidebar(m.self, string(th.background))
+	}
+	m.th, m.notify = th, o["@sentinela_notify"]
 	return m.poll
 }
 
@@ -450,7 +457,7 @@ func runSidebar(bin string) error {
 		if err := configureSidebarName(self); err != nil {
 			return err
 		}
-		paintSidebar(self)
+		paintSidebar(self, string(loadTheme(globalOptions()).background))
 	}
 	_, err := tea.NewProgram(newModel(bin), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
