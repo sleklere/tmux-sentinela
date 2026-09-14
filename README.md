@@ -23,8 +23,9 @@ how long.
 
 ## Requirements
 
-tmux ≥ 3.2, Go ≥ 1.22 to build, `ps`. Developed on Linux; macOS should work
-(portable `ps`/signal 0 process lookup) but is untested.
+tmux ≥ 3.2, `ps`, and `curl` or `wget`. Go is optional: when available, the
+plugin builds from source; otherwise it downloads a verified release binary.
+Developed on Linux; macOS should work but is untested.
 
 ## Install
 
@@ -40,9 +41,11 @@ Or clone anywhere and add to `.tmux.conf`:
 run-shell '/path/to/tmux-sentinela/tmux-sentinela.tmux'
 ```
 
-The script builds the binary (`go build`) when missing or stale, registers
-hooks and the keybinding, and links the OpenCode plugin into
-`~/.config/opencode/plugins/tmux-sentinela.js`. Re-sourcing is idempotent.
+The script builds the binary when Go is available. Without Go, it downloads
+the latest release for Linux or macOS (`amd64` / `arm64`) and verifies its
+SHA-256 checksum. It also registers hooks and the keybinding, and links the
+OpenCode plugin into `~/.config/opencode/plugins/tmux-sentinela.js`.
+Re-sourcing is idempotent.
 
 Claude Code needs hooks in `~/.claude/settings.json` calling
 `bin/tmux-sentinela claude-hook` on `Notification`, `PreToolUse`, `PostToolUse`,

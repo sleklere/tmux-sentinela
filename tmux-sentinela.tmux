@@ -7,14 +7,20 @@
 set -u
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$DIR/bin/tmux-sentinela"
+mkdir -p "$DIR/bin"
 
 rebuilt=off
-if [ ! -x "$BIN" ] || [ -n "$(find "$DIR" -name '*.go' -newer "$BIN" -print -quit)" ]; then
-    if ! (cd "$DIR" && go build -o "$BIN" .) 2>"$DIR/build.log"; then
-        tmux display-message "tmux-sentinela: go build failed, see $DIR/build.log"
-        exit 0
-    fi
-    rebuilt=on
+if [ ! -x "$BIN" ] || [ -n "$(find "$DIR" -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) -newer "$BIN" -print -quit)" ]; then
+	if command -v go >/dev/null 2>&1; then
+		if ! (cd "$DIR" && go build -o "$BIN" .) 2>"$DIR/build.log"; then
+			tmux display-message "tmux-sentinela: go build failed, see $DIR/build.log"
+			exit 0
+		fi
+	elif ! "$DIR/install-binary.sh" "$BIN" 2>"$DIR/build.log"; then
+		tmux display-message "tmux-sentinela: release download failed, see $DIR/build.log"
+		exit 0
+	fi
+	rebuilt=on
 fi
 
 key=$(tmux show-option -gqv @sentinela_key); key=${key:-a}
