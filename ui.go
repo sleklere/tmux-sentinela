@@ -436,6 +436,9 @@ func runSidebar(bin string) error {
 			return nil
 		}
 		tmux("set-option", "-p", "-t", self, "@sentinela_sidebar", "1")
+		if err := configureSidebarName(self); err != nil {
+			return err
+		}
 		paintSidebar(self)
 	}
 	_, err := tea.NewProgram(newModel(bin), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()

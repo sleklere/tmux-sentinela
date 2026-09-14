@@ -133,7 +133,24 @@ func openSidebar(bin, windowID, width string) error {
 		return err
 	}
 	paintSidebar(id)
-	return nil
+	return configureSidebarName(id)
+}
+
+const workPaneName = "#{P:#{?pane_last,#{E:@sentinela_rename_format},}}"
+const sidebarRenameFormat = "#{?#{@sentinela_sidebar},#{?" + workPaneName + "," + workPaneName + ",#{window_name}},#{E:@sentinela_rename_format}}"
+
+// Keep the user's format, but evaluate it on the last work pane while the
+// sidebar has focus. Unlike rename-window, this leaves automatic-rename alone.
+func configureSidebarName(paneID string) error {
+	format, err := tmux("display-message", "-p", "-t", paneID, "#{automatic-rename-format}")
+	if err != nil || format == sidebarRenameFormat {
+		return err
+	}
+	if _, err := tmux("set-option", "-w", "-t", paneID, "@sentinela_rename_format", format); err != nil {
+		return err
+	}
+	_, err = tmux("set-option", "-w", "-t", paneID, "automatic-rename-format", sidebarRenameFormat)
+	return err
 }
 
 // paintSidebar gives the pane an opaque background (@sentinela_bg, else

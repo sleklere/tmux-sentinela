@@ -81,6 +81,10 @@ The cursor follows focus: switching to a window with an agent (by any tmux
 means) moves the bar to it. Every sidebar marks the same agent, so jumping
 never lands on a window whose bar sits somewhere else.
 
+Focusing the sidebar does not name the window after the plugin: automatic
+renaming uses the last work pane and preserves your rename format. Manually
+named windows keep their names.
+
 When an agent turns blocked in a pane you are not looking at, a message shows
 on every attached client (see `@sentinela_notify` for desktop notifications).
 
@@ -135,6 +139,8 @@ go vet ./...
 CI runs on branch pushes and pull requests, on Linux and macOS. It checks Go
 formatting, shell syntax, vet, tests with race detection, and the build. Coverage
 is included in the job summary and downloadable as a profile and HTML report.
+tmux integration tests use a separate server with no user configuration; they
+are skipped locally if tmux is not installed. CI installs tmux on both platforms.
 
 Tag pushes (`v*`) run the same CI workflow on the tagged commit. Release binaries
 are built and published only after all checks pass on both platforms.
