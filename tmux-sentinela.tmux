@@ -8,11 +8,13 @@ set -u
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$DIR/bin/tmux-sentinela"
 
+rebuilt=off
 if [ ! -x "$BIN" ] || [ -n "$(find "$DIR" -name '*.go' -newer "$BIN" -print -quit)" ]; then
     if ! (cd "$DIR" && go build -o "$BIN" .) 2>"$DIR/build.log"; then
         tmux display-message "tmux-sentinela: go build failed, see $DIR/build.log"
         exit 0
     fi
+    rebuilt=on
 fi
 
 key=$(tmux show-option -gqv @sentinela_key); key=${key:-a}
@@ -22,6 +24,15 @@ tmux set-hook -g 'after-new-window[50]'  "run-shell -b \"'$BIN' ensure\""
 tmux set-hook -g 'after-new-session[50]' "run-shell -b \"'$BIN' ensure\""
 tmux set-hook -gw 'pane-exited[50]'      "run-shell -b \"'$BIN' prune\""
 tmux set-hook -g 'after-kill-pane[50]'   "run-shell -b \"'$BIN' prune\""
+
+if [ "$rebuilt" = "on" ]; then
+	while read -r window sidebar; do
+		if [ -n "$sidebar" ]; then
+			"$BIN" toggle "$window"
+			"$BIN" toggle "$window"
+		fi
+	done < <(tmux list-panes -a -F '#{window_id} #{@sentinela_sidebar}')
+fi
 
 # OpenCode plugin (auto-loaded from ~/.config/opencode/plugins)
 mkdir -p "$HOME/.config/opencode/plugins"
