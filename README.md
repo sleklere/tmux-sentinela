@@ -123,3 +123,18 @@ State lives in `~/.cache/tmux-sentinela/`. Entries of dead processes are dropped
 ## Binary commands
 
 `sidebar` (TUI), `ensure`, `toggle`, `prune`, `status`, `claude-hook`.
+
+## Tests and CI
+
+```sh
+go test -race -count=1 -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out
+go vet ./...
+```
+
+CI runs on branch pushes and pull requests, on Linux and macOS. It checks Go
+formatting, shell syntax, vet, tests with race detection, and the build. Coverage
+is included in the job summary and downloadable as a profile and HTML report.
+
+Tag pushes (`v*`) run the same CI workflow on the tagged commit. Release binaries
+are built and published only after all checks pass on both platforms.
