@@ -10,7 +10,7 @@ running in any session, with its state, and jumps to its pane.
 
 ▌ ● api-refactor            ← blocked: waiting for permission / an answer
 ▌   claude  work:1  2m
-  ⠹ fix-login               ← busy
+  ● fix-login               ← busy: yellow-orange pulse
     claude  work:2
   ✓ docs                    ← done: finished and you have not looked yet
     opencode  home:0
@@ -54,14 +54,16 @@ Claude Code needs hooks in `~/.claude/settings.json` calling
     "Notification":     [{"hooks": [{"type": "command", "command": "/path/to/tmux-sentinela/bin/tmux-sentinela claude-hook", "timeout": 5}]}],
     "PreToolUse":       [{"hooks": [{"type": "command", "command": "/path/to/tmux-sentinela/bin/tmux-sentinela claude-hook", "timeout": 5}]}],
     "PostToolUse":      [{"hooks": [{"type": "command", "command": "/path/to/tmux-sentinela/bin/tmux-sentinela claude-hook", "timeout": 5}]}],
+    "SessionStart":     [{"hooks": [{"type": "command", "command": "/path/to/tmux-sentinela/bin/tmux-sentinela claude-hook", "timeout": 5}]}],
+    "SessionEnd":       [{"hooks": [{"type": "command", "command": "/path/to/tmux-sentinela/bin/tmux-sentinela claude-hook", "timeout": 5}]}],
     "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "/path/to/tmux-sentinela/bin/tmux-sentinela claude-hook", "timeout": 5}]}],
     "Stop":             [{"hooks": [{"type": "command", "command": "/path/to/tmux-sentinela/bin/tmux-sentinela claude-hook", "timeout": 5}]}]
   }
 }
 ```
 
-The hooks only provide the `blocked` state; busy/idle come from
-`~/.claude/sessions/*.json` without any hook.
+The hooks also mirror Claude's session registry into the plugin cache. This
+keeps detection working when Claude runs with a custom `CLAUDE_CONFIG_DIR`.
 
 ## Usage
 
@@ -96,7 +98,8 @@ would without the plugin.
 | `@sentinela_color_muted` | `@th_muted` | details, idle glyph |
 | `@sentinela_color_accent` | `@th_accent1` | cursor bar, done glyph |
 | `@sentinela_color_title` | `@th_accent2` | title |
-| `@sentinela_color_busy` | `@th_accent3` | spinner |
+| `@sentinela_color_busy` | `@th_accent3` | start of the busy pulse |
+| `@sentinela_color_busy_glow` | derived from busy color | theme-aware peak of the busy pulse; optional override |
 | `@sentinela_color_alert` | `@th_alert` | blocked glyph and count |
 
 Colors resolve in order: `@sentinela_color_*`, then the `@th_*` globals of a
@@ -109,7 +112,7 @@ shell: `set -g @resurrect-processes '"~tmux-sentinela sidebar"'`.
 
 | Agent | busy / idle | blocked | name |
 |---|---|---|---|
-| Claude Code | `~/.claude/sessions/<pid>.json` (`status`), pid → pane via the process tree | hook `Notification permission_prompt` or `PreToolUse AskUserQuestion`; cleared by any other hook | `name` (honors `/rename`) |
+| Claude Code | Claude session registry (`status`), mirrored by hooks for custom config dirs; pid → pane via the process tree | hook `Notification permission_prompt` or `PreToolUse AskUserQuestion`; cleared by any other hook | `name` (honors `/rename`) |
 | OpenCode | plugin: `session.status` / `session.idle` | `permission.updated` until `permission.replied` | `title` of the root session |
 
 State lives in `~/.cache/tmux-sentinela/`. Entries of dead processes are dropped.
