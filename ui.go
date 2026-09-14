@@ -46,6 +46,8 @@ const rowHeight = 2 // name line + detail line
 type pollMsg struct {
 	agents []Agent
 	leader bool   // this sidebar is the first one in tmux order: it notifies
+	active bool   // this sidebar pane has focus
+	window string // window containing this sidebar
 	sel    string // key of the agent selected from any sidebar
 	err    error
 }
@@ -70,6 +72,8 @@ type model struct {
 	started time.Time
 	prev    map[string]Status // status at the previous poll, for transitions
 	focused string            // key of the agent whose pane had focus last poll
+	window  string            // window containing this sidebar
+	active  bool              // this sidebar pane has focus
 }
 
 func newModel(bin string) model {
@@ -84,14 +88,17 @@ func (m model) poll() tea.Msg {
 		return pollMsg{err: err}
 	}
 	// Only one sidebar announces, so N windows do not mean N notifications.
-	leader := false
+	firstSidebar, window, active := "", "", false
 	for _, p := range panes {
-		if p.Sidebar {
-			leader = p.ID == m.self
-			break
+		if p.Sidebar && firstSidebar == "" {
+			firstSidebar = p.ID
+		}
+		if p.ID == m.self {
+			window, active = p.WindowID, p.Visible
 		}
 	}
-	return pollMsg{agents: collectPanes(panes), leader: leader, sel: readSelection()}
+	return pollMsg{agents: collectPanes(panes), leader: firstSidebar == m.self,
+		active: active, window: window, sel: readSelection()}
 }
 
 // focusPoll is the cheap poll between full ones: one list-panes, no ps.
@@ -138,14 +145,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.applyPoll(msg)
 		}
 	case focusMsg:
+		if self, ok := msg.panes[m.self]; ok {
+			m.active = self.Visible
+		}
 		for i := range m.agents {
 			if p, ok := msg.panes[m.agents[i].Pane.ID]; ok {
 				m.agents[i].Pane.Visible, m.agents[i].Pane.Current = p.Visible, p.Current
 			}
 		}
-		if !m.followFocus() {
-			m.selectKey(msg.sel)
-		}
+		m.syncCursor(msg.sel)
 	case tea.MouseMsg:
 		// Press and release both count: when the sidebar pane is inactive,
 		// tmux uses the press to focus it and only forwards the release.
@@ -170,7 +178,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.moveCursor(m.cursor - 1)
 			}
 		case "enter", "l":
-			if m.cursor < len(m.agents) {
+			if m.cursor >= 0 && m.cursor < len(m.agents) {
 				jumpTo(m.agents[m.cursor].Pane.ID)
 			}
 		case "r":
@@ -182,6 +190,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) applyPoll(msg pollMsg) {
 	m.agents = msg.agents
+	m.window, m.active = msg.window, msg.active
 	now := time.Now()
 	prev := make(map[string]Status, len(m.agents))
 	for _, a := range m.agents {
@@ -208,9 +217,7 @@ func (m *model) applyPoll(msg pollMsg) {
 		prev[a.Key] = a.Status
 	}
 	m.prev = prev
-	if !m.followFocus() {
-		m.selectKey(msg.sel)
-	}
+	m.syncCursor(msg.sel)
 	if m.cursor >= len(m.agents) {
 		m.cursor = max(0, len(m.agents)-1)
 	}
@@ -220,8 +227,25 @@ func (m *model) applyPoll(msg pollMsg) {
 // agent: a jump then lands on a window whose bar is already in place.
 func (m *model) moveCursor(i int) {
 	m.cursor = i
-	if i < len(m.agents) {
+	if i >= 0 && i < len(m.agents) {
 		writeSelection(m.agents[i].Key)
+	}
+}
+
+func (m *model) syncCursor(selected string) {
+	hasAgent := false
+	for _, a := range m.agents {
+		if a.Pane.WindowID == m.window {
+			hasAgent = true
+			break
+		}
+	}
+	if !hasAgent && !m.active {
+		m.cursor = -1
+		return
+	}
+	if !m.followFocus() {
+		m.selectKey(selected)
 	}
 }
 

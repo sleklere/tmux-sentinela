@@ -86,3 +86,39 @@ func TestViewingAgentClearsDoneInEverySidebar(t *testing.T) {
 		t.Fatal("done state remained after another sidebar saw the agent")
 	}
 }
+
+func TestCursorIsHiddenInWindowWithoutAgent(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	agent := Agent{Key: "claude:100", Pane: Pane{WindowID: "@agent"}}
+	m := model{cursor: 0, seen: map[string]time.Time{}, started: time.Now(), prev: map[string]Status{}}
+
+	m.applyPoll(pollMsg{agents: []Agent{agent}, window: "@empty", sel: agent.Key})
+
+	if m.cursor != -1 {
+		t.Fatalf("cursor = %d, want hidden (-1)", m.cursor)
+	}
+}
+
+func TestCursorRemainsInWindowWithAgent(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	agent := Agent{Key: "claude:100", Pane: Pane{WindowID: "@agent"}}
+	m := model{seen: map[string]time.Time{}, started: time.Now(), prev: map[string]Status{}}
+
+	m.applyPoll(pollMsg{agents: []Agent{agent}, window: "@agent", sel: agent.Key})
+
+	if m.cursor != 0 {
+		t.Fatalf("cursor = %d, want 0", m.cursor)
+	}
+}
+
+func TestCursorCanSelectAgentWhenEmptySidebarHasFocus(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	agent := Agent{Key: "claude:100", Pane: Pane{WindowID: "@agent"}}
+	m := model{cursor: -1, seen: map[string]time.Time{}, started: time.Now(), prev: map[string]Status{}}
+
+	m.applyPoll(pollMsg{agents: []Agent{agent}, active: true, window: "@empty", sel: agent.Key})
+
+	if m.cursor != 0 {
+		t.Fatalf("cursor = %d, want 0", m.cursor)
+	}
+}
