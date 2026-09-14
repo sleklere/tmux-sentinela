@@ -45,6 +45,7 @@ const rowHeight = 2 // name line + detail line
 
 type pollMsg struct {
 	agents []Agent
+	layout sidebarLayout
 	leader bool   // this sidebar is the first one in tmux order: it notifies
 	active bool   // this sidebar pane has focus
 	window string // window containing this sidebar
@@ -74,6 +75,7 @@ type model struct {
 	focused string            // key of the agent whose pane had focus last poll
 	window  string            // window containing this sidebar
 	active  bool              // this sidebar pane has focus
+	layout  sidebarLayout
 }
 
 func newModel(bin string) model {
@@ -97,8 +99,16 @@ func (m model) poll() tea.Msg {
 			window, active = p.WindowID, p.Visible
 		}
 	}
-	return pollMsg{agents: collectPanes(panes), leader: firstSidebar == m.self,
-		active: active, window: window, sel: readSelection()}
+	var layout sidebarLayout
+	leader := m.self != "" && firstSidebar == m.self
+	if leader {
+		if layout, err = syncSidebarWidths(panes, m.layout); err != nil {
+			return pollMsg{err: err}
+		}
+		panes = layout.panes
+	}
+	return pollMsg{agents: collectPanes(panes), leader: leader,
+		active: active, window: window, sel: readSelection(), layout: layout}
 }
 
 // focusPoll is the cheap poll between full ones: one list-panes, no ps.
@@ -191,6 +201,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) applyPoll(msg pollMsg) {
 	m.agents = msg.agents
 	m.window, m.active = msg.window, msg.active
+	m.layout = msg.layout
 	now := time.Now()
 	prev := make(map[string]Status, len(m.agents))
 	for _, a := range m.agents {

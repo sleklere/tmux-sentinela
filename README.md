@@ -85,6 +85,10 @@ Focusing the sidebar does not name the window after the plugin: automatic
 renaming uses the last work pane and preserves your rename format. Manually
 named windows keep their names.
 
+Resizing a sidebar shares its width with the others within about a second and
+updates `@sentinela_width` for new windows. Zoom and terminal-size changes do
+not replace the shared width; small windows use as much of it as fits.
+
 When an agent turns blocked in a pane you are not looking at, a message shows
 on every attached client (see `@sentinela_notify` for desktop notifications).
 
