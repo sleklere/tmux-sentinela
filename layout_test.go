@@ -6,8 +6,9 @@ import (
 )
 
 func TestPlanSidebarWidths(t *testing.T) {
-	a := Pane{ID: "%1", Sidebar: true, Width: 32, WindowWidth: 160}
-	b := Pane{ID: "%2", Sidebar: true, Width: 32, WindowWidth: 160}
+	a := Pane{ID: "%1", WindowID: "@1", Sidebar: true, Width: 32, WindowWidth: 160}
+	b := Pane{ID: "%2", WindowID: "@2", Sidebar: true, Width: 32, WindowWidth: 160}
+	workA := Pane{ID: "%3", WindowID: "@1", Width: 128, WindowWidth: 160}
 	for _, tt := range []struct {
 		name       string
 		before     []Pane
@@ -27,6 +28,7 @@ func TestPlanSidebarWidths(t *testing.T) {
 		{"unzoom", []Pane{{ID: a.ID, Sidebar: true, Width: 160, WindowWidth: 160, Zoomed: true}}, []Pane{resized(a, 40)}, 32, 32, 32, []paneResize{{a.ID, 32}}},
 		{"clamped width is stable", []Pane{resized(a, 20)}, []Pane{resized(a, 20)}, 32, 32, 32, nil},
 		{"work pane resize ignored", []Pane{{ID: "%work", Width: 80}}, []Pane{{ID: "%work", Width: 60}}, 32, 32, 32, nil},
+		{"work pane closed", []Pane{a, workA, b}, []Pane{resized(a, 160), b}, 32, 32, 32, []paneResize{{a.ID, 32}}},
 		{"no sidebars", []Pane{a}, nil, 32, 32, 32, nil},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -105,4 +107,12 @@ func TestSidebarWidthSyncAcrossWindows(t *testing.T) {
 	run("resize-window", "-t", window, "-x", "160", "-y", "40")
 	poll()
 	assertWidth(c, "36")
+	// Closing the last work pane briefly leaves its sidebar filling the window
+	// until the prune hook runs. That expansion must not become the shared width.
+	run("kill-pane", "-t", "%0")
+	poll()
+	assertWidth(c, "36")
+	if got := run("show-option", "-gqv", "@sentinela_width"); got != "36" {
+		t.Fatalf("orphaned sidebar overwrote shared width: %q", got)
+	}
 }

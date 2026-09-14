@@ -54,7 +54,8 @@ func planSidebarWidths(panes []Pane, previous sidebarLayout, configured int) (in
 		for _, p := range panes {
 			before, known := old[p.ID]
 			if p.Sidebar && known && !p.Zoomed && !before.Zoomed &&
-				p.WindowWidth == before.WindowWidth && p.Width != before.Width {
+				p.WindowWidth == before.WindowWidth && p.Width != before.Width &&
+				sameWindowPanes(p.WindowID, previous.panes, panes) {
 				width = p.Width
 				break
 			}
@@ -75,4 +76,24 @@ func planSidebarWidths(panes []Pane, previous sidebarLayout, configured int) (in
 		resizes = append(resizes, paneResize{id: p.ID, width: width})
 	}
 	return width, resizes
+}
+
+func sameWindowPanes(windowID string, before, after []Pane) bool {
+	afterIDs := map[string]bool{}
+	for _, p := range after {
+		if p.WindowID == windowID {
+			afterIDs[p.ID] = true
+		}
+	}
+	count := 0
+	for _, p := range before {
+		if p.WindowID != windowID {
+			continue
+		}
+		count++
+		if !afterIDs[p.ID] {
+			return false
+		}
+	}
+	return count == len(afterIDs)
 }
