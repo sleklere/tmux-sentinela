@@ -2,17 +2,20 @@ package main
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lucasb-eyer/go-colorful"
 )
 
 // Theme colors: explicit @sentinela_color_* options win, then the @th_* options
 // of a tmux-wide theme, then rose-pine so the sidebar renders anywhere.
 type theme struct {
-	text, muted, accent, title, busy, alert lipgloss.Color
+	text, muted, accent, title, busy, busyGlow, alert lipgloss.Color
 }
 
 func loadTheme(o map[string]string) theme {
@@ -24,17 +27,19 @@ func loadTheme(o map[string]string) theme {
 		}
 		return lipgloss.Color(def)
 	}
+	busy := pick("@sentinela_color_busy", "@th_accent3", "#ffd166")
 	return theme{
-		text:   pick("@sentinela_color_text", "@th_text", "#e0def4"),
-		muted:  pick("@sentinela_color_muted", "@th_muted", "#908caa"),
-		accent: pick("@sentinela_color_accent", "@th_accent1", "#9ccfd8"),
-		title:  pick("@sentinela_color_title", "@th_accent2", "#c4a7e7"),
-		busy:   pick("@sentinela_color_busy", "@th_accent3", "#f6c177"),
-		alert:  pick("@sentinela_color_alert", "@th_alert", "#eb6f92"),
+		text:     pick("@sentinela_color_text", "@th_text", "#e0def4"),
+		muted:    pick("@sentinela_color_muted", "@th_muted", "#908caa"),
+		accent:   pick("@sentinela_color_accent", "@th_accent1", "#9ccfd8"),
+		title:    pick("@sentinela_color_title", "@th_accent2", "#c4a7e7"),
+		busy:     busy,
+		busyGlow: pick("@sentinela_color_busy_glow", "", string(pulseVariant(busy))),
+		alert:    pick("@sentinela_color_alert", "@th_alert", "#eb6f92"),
 	}
 }
 
-var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+const busyCycleFrames = 16
 
 const rowHeight = 2 // name line + detail line
 
@@ -120,7 +125,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 	case tickMsg:
 		m.frame++
-		if m.frame%8 == 0 { // ~1s data refresh, 120ms spinner
+		if m.frame%8 == 0 { // ~1s data refresh, 120ms busy animation
 			return m, tea.Batch(tick(), m.refresh())
 		}
 		if m.frame%2 == 0 { // ~240ms focus refresh
@@ -180,9 +185,17 @@ func (m *model) applyPoll(msg pollMsg) {
 	now := time.Now()
 	prev := make(map[string]Status, len(m.agents))
 	for _, a := range m.agents {
+		seen, known := m.seen[a.Key]
+		if shared, ok := readSeen(a.Key); ok && (!known || seen.Equal(m.started) || seen.Before(shared)) {
+			m.seen[a.Key] = shared
+			known = true
+		}
 		if a.Pane.Visible {
 			m.seen[a.Key] = now
-		} else if _, ok := m.seen[a.Key]; !ok {
+			if msg.leader {
+				writeSeen(a.Key, now)
+			}
+		} else if !known {
 			m.seen[a.Key] = m.started // unknown history: not "done"
 		}
 		// Announce the transition into blocked, once, and not for the pane
@@ -264,12 +277,47 @@ func (m model) glyph(a Agent) (string, lipgloss.Color) {
 	case a.Status == Blocked:
 		return "●", m.th.alert
 	case a.Status == Busy:
-		return spinner[m.frame%len(spinner)], m.th.busy
+		return "●", pulseColor(m.th.busy, m.th.busyGlow, m.frame)
 	case m.done(a):
 		return "✓", m.th.accent
 	default:
 		return "○", m.th.muted
 	}
+}
+
+func pulseColor(from, to lipgloss.Color, frame int) lipgloss.Color {
+	start, startOK := parseHexColor(from)
+	end, endOK := parseHexColor(to)
+	if !startOK || !endOK {
+		return from
+	}
+	t := (1 - math.Cos(2*math.Pi*float64(frame%busyCycleFrames)/busyCycleFrames)) / 2
+	mix := func(a, b uint64) uint8 {
+		return uint8(math.Round(float64(a) + (float64(b)-float64(a))*t))
+	}
+	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x",
+		mix(start>>16, end>>16),
+		mix(start>>8&0xff, end>>8&0xff),
+		mix(start&0xff, end&0xff),
+	))
+}
+
+func parseHexColor(c lipgloss.Color) (uint64, bool) {
+	s := strings.TrimPrefix(string(c), "#")
+	if len(s) != 6 {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(s, 16, 24)
+	return n, err == nil
+}
+
+func pulseVariant(base lipgloss.Color) lipgloss.Color {
+	c, err := colorful.Hex(string(base))
+	if err != nil {
+		return base
+	}
+	h, s, l := c.Hsl()
+	return lipgloss.Color(colorful.Hsl(math.Mod(h+340, 360), min(1, s+0.12), max(0, l-0.08)).Hex())
 }
 
 func (m model) View() string {
