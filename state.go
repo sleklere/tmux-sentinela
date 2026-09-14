@@ -58,21 +58,36 @@ type claudeSession struct {
 	Name            string `json:"name"`
 	Status          string `json:"status"` // idle | busy
 	StatusUpdatedAt int64  `json:"statusUpdatedAt"`
+	UpdatedAt       int64  `json:"updatedAt"`
 	CWD             string `json:"cwd"`
 }
 
 func readClaudeSessions() []claudeSession {
-	files, _ := filepath.Glob(filepath.Join(claudeSessionsDir(), "*.json"))
-	var out []claudeSession
-	for _, f := range files {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			continue
+	dirs := []string{claudeSessionsDir(), filepath.Join(stateDir(), "claude")}
+	byPID := map[int]claudeSession{}
+	for _, dir := range dirs {
+		files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
+		for _, f := range files {
+			b, err := os.ReadFile(f)
+			if err != nil {
+				continue
+			}
+			var s claudeSession
+			if json.Unmarshal(b, &s) != nil || s.PID == 0 {
+				continue
+			}
+			if dir != claudeSessionsDir() && !pidAlive(s.PID) {
+				os.Remove(f)
+				removeSeen("claude:" + strconv.Itoa(s.PID))
+				continue
+			}
+			if current, ok := byPID[s.PID]; !ok || s.UpdatedAt > current.UpdatedAt {
+				byPID[s.PID] = s
+			}
 		}
-		var s claudeSession
-		if json.Unmarshal(b, &s) != nil || s.PID == 0 {
-			continue
-		}
+	}
+	out := make([]claudeSession, 0, len(byPID))
+	for _, s := range byPID {
 		out = append(out, s)
 	}
 	return out
@@ -96,6 +111,30 @@ func writeSelection(key string) {
 	}
 	os.WriteFile(selectionFile(), []byte(key), 0o644)
 }
+
+func seenFile(key string) string { return filepath.Join(stateDir(), "seen", key) }
+
+func readSeen(key string) (time.Time, bool) {
+	b, err := os.ReadFile(seenFile(key))
+	if err != nil {
+		return time.Time{}, false
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return time.Unix(0, n), true
+}
+
+func writeSeen(key string, at time.Time) {
+	dir := filepath.Join(stateDir(), "seen")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	os.WriteFile(seenFile(key), []byte(strconv.FormatInt(at.UnixNano(), 10)), 0o600)
+}
+
+func removeSeen(key string) { os.Remove(seenFile(key)) }
 
 func claudeBlocked(sessionID string) (bool, time.Time) {
 	st, err := os.Stat(filepath.Join(stateDir(), "claude-blocked", sessionID))
@@ -130,6 +169,7 @@ func readOpencodeStates() []opencodeState {
 		}
 		if !pidAlive(s.PID) {
 			os.Remove(f)
+			removeSeen("opencode:" + strconv.Itoa(s.PID))
 			continue
 		}
 		out = append(out, s)
@@ -221,15 +261,16 @@ func collectPanes(panes []Pane) []Agent {
 	var agents []Agent
 
 	for _, s := range readClaudeSessions() {
+		key := "claude:" + strconv.Itoa(s.PID)
 		if !pidAlive(s.PID) {
+			removeSeen(key)
 			continue
 		}
 		pane, ok := paneOf(s.PID, parents, byPID)
 		if !ok {
 			continue
 		}
-		a := Agent{Kind: "claude", Name: s.Name, PID: s.PID, Pane: pane,
-			Key: "claude:" + strconv.Itoa(s.PID)}
+		a := Agent{Kind: "claude", Name: s.Name, PID: s.PID, Pane: pane, Key: key}
 		if s.StatusUpdatedAt > 0 { // absent until the first turn
 			a.Since = time.UnixMilli(s.StatusUpdatedAt)
 		}
@@ -248,6 +289,7 @@ func collectPanes(panes []Pane) []Agent {
 	}
 
 	for _, s := range readOpencodeStates() {
+		key := "opencode:" + strconv.Itoa(s.PID)
 		pane, ok := byID[s.Pane]
 		if !ok { // TMUX_PANE not inherited: walk the process tree instead
 			if pane, ok = paneOf(s.PID, parents, byPID); !ok {
@@ -255,7 +297,7 @@ func collectPanes(panes []Pane) []Agent {
 			}
 		}
 		a := Agent{Kind: "opencode", Name: s.Name, PID: s.PID, Pane: pane,
-			Key: "opencode:" + strconv.Itoa(s.PID), Since: time.UnixMilli(s.Updated)}
+			Key: key, Since: time.UnixMilli(s.Updated)}
 		switch s.Status {
 		case "busy":
 			a.Status = Busy
