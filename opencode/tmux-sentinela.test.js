@@ -20,6 +20,7 @@ test("tracks OpenCode sessions and both permission event versions", async () => 
     name: "",
     status: "idle",
     updated: (await state()).updated,
+    revision: 1,
     cwd: "/work/project",
   });
 
@@ -27,6 +28,7 @@ test("tracks OpenCode sessions and both permission event versions", async () => 
   await event("session.status", { sessionID: "session-1", status: { type: "busy" } });
   assert.equal((await state()).status, "busy");
   assert.equal((await state()).name, "Fix rows");
+  assert.equal((await state()).revision, 3);
 
   await Promise.all(
     Array.from({ length: 40 }, (_, i) =>

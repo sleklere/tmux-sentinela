@@ -5,6 +5,7 @@ go 1.27.0
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/lucasb-eyer/go-colorful v1.2.0
 )
 

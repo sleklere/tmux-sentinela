@@ -44,94 +44,91 @@ func loadTheme(o map[string]string) theme {
 const busyCycleFrames = 16
 
 const tickInterval = 240 * time.Millisecond
-const ticksPerRefresh = 4
+const ticksPerPulse = 4
+const fallbackInterval = 2 * time.Second
 
 const rowHeight = 2 // name line + detail line
 
 type pollMsg struct {
-	agents  []Agent
-	layout  sidebarLayout
-	leader  bool   // this sidebar is the first one in tmux order: it notifies
-	active  bool   // this sidebar pane has focus
-	current bool   // this sidebar belongs to a visible window
-	window  string // window containing this sidebar
-	sel     string // key of the agent selected from any sidebar
-	err     error
-}
-type focusMsg struct {
-	panes map[string]Pane // fresh pane flags, by pane id
-	sel   string
+	sequence uint64
+	agents   []Agent
+	layout   sidebarLayout
+	leader   bool   // this sidebar is the first one in tmux order: it notifies
+	active   bool   // this sidebar pane has focus
+	window   string // window containing this sidebar
+	sel      string // key of the agent selected from any sidebar
+	err      error
 }
 type tickMsg time.Time
 
 type model struct {
-	bin     string
-	self    string // own pane id, "" outside tmux
-	th      theme
-	notify  string // @sentinela_notify
-	agents  []Agent
-	cursor  int
-	width   int
-	height  int
-	frame   int
-	err     error
-	seen    map[string]time.Time // agent key → last time its pane was visible
-	started time.Time
-	prev    map[string]Status // status at the previous poll, for transitions
-	focused string            // key of the agent whose pane had focus last poll
-	window  string            // window containing this sidebar
-	active  bool              // this sidebar pane has focus
-	current bool              // this sidebar belongs to a visible window
-	layout  sidebarLayout
+	bin               string
+	self              string // own pane id, "" outside tmux
+	th                theme
+	notify            string // @sentinela_notify
+	agents            []Agent
+	cursor            int
+	width             int
+	height            int
+	frame             int
+	err               error
+	seen              map[string]time.Time // agent key → last time its pane was visible
+	started           time.Time
+	prev              map[string]Status // status at the previous poll, for transitions
+	focused           string            // key of the agent whose pane had focus last poll
+	selection         string            // last shared selection observed
+	window            string            // window containing this sidebar
+	active            bool              // this sidebar pane has focus
+	layout            sidebarLayout
+	requestedSequence uint64
+	appliedSequence   uint64
+	polling           bool
+	pendingPoll       bool
+	watchRefresh      tea.Cmd
+	lastPollRequested time.Time
 }
 
 func newModel(bin string) model {
 	o := globalOptions()
+	now := time.Now()
 	return model{bin: bin, self: selfPane(), th: loadTheme(o), notify: o["@sentinela_notify"],
-		seen: map[string]time.Time{}, started: time.Now()}
+		seen: map[string]time.Time{}, started: now, requestedSequence: 1, polling: true,
+		lastPollRequested: now}
 }
 
-func (m model) poll() tea.Msg {
+func (m model) poll(sequence uint64) tea.Msg {
 	panes, err := listPanes()
 	if err != nil {
-		return pollMsg{err: err}
+		return pollMsg{sequence: sequence, err: err}
 	}
 	// Only one sidebar announces, so N windows do not mean N notifications.
-	firstSidebar, window, active, current := "", "", false, false
+	firstSidebar, window, active := "", "", false
 	for _, p := range panes {
 		if p.Sidebar && firstSidebar == "" {
 			firstSidebar = p.ID
 		}
 		if p.ID == m.self {
-			window, active, current = p.WindowID, p.Visible, p.Current
+			window, active = p.WindowID, p.Visible
 		}
 	}
 	var layout sidebarLayout
 	leader := m.self != "" && firstSidebar == m.self
 	if leader {
 		if layout, err = syncSidebarWidths(panes, m.layout); err != nil {
-			return pollMsg{err: err}
+			return pollMsg{sequence: sequence, err: err}
 		}
 		panes = layout.panes
 	}
-	return pollMsg{agents: collectPanes(panes), leader: leader,
-		active: active, current: current, window: window, sel: readSelection(), layout: layout}
+	return pollMsg{sequence: sequence, agents: collectPanes(panes), leader: leader,
+		active: active, window: window, sel: readSelection(), layout: layout}
 }
 
-// focusPoll is the cheap poll between full ones: one list-panes, no ps.
-func focusPoll() tea.Msg {
-	panes, err := listPanes()
-	if err != nil {
-		return nil
-	}
-	byID := make(map[string]Pane, len(panes))
-	for _, p := range panes {
-		byID[p.ID] = p
-	}
-	return focusMsg{panes: byID, sel: readSelection()}
+func (m model) pollCommand(sequence uint64) tea.Cmd {
+	return func() tea.Msg { return m.poll(sequence) }
 }
 
-func (m *model) refresh() tea.Cmd {
+func (m *model) beginPoll() tea.Cmd {
+	m.polling = true
 	o := globalOptions()
 	th := loadTheme(o)
 	// tmux 3.2 caches pane styles even when a referenced @option changes.
@@ -139,14 +136,26 @@ func (m *model) refresh() tea.Cmd {
 		paintSidebar(m.self, string(th.background))
 	}
 	m.th, m.notify = th, o["@sentinela_notify"]
-	return m.poll
+	return m.pollCommand(m.requestedSequence)
+}
+
+func (m *model) requestPoll(at time.Time) tea.Cmd {
+	m.requestedSequence++
+	m.lastPollRequested = at
+	if m.polling {
+		m.pendingPoll = true
+		return nil
+	}
+	return m.beginPoll()
 }
 
 func tick() tea.Cmd {
 	return tea.Tick(tickInterval, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-func (m model) Init() tea.Cmd { return tea.Batch(m.poll, tick()) }
+func (m model) Init() tea.Cmd {
+	return tea.Batch(m.pollCommand(m.requestedSequence), tick(), m.watchRefresh)
+}
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -154,28 +163,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 	case tickMsg:
 		m.frame++
-		if m.frame%ticksPerRefresh == 0 { // ~1s data and animation refresh
-			return m, tea.Batch(tick(), m.refresh())
+		if at := time.Time(msg); at.Sub(m.lastPollRequested) >= fallbackInterval {
+			return m, tea.Batch(tick(), m.requestPoll(at))
 		}
-		if !m.current {
-			return m, tick()
-		}
-		return m, tea.Batch(tick(), focusPoll)
+		return m, tick()
+	case refreshMsg:
+		return m, tea.Batch(m.watchRefresh, m.requestPoll(time.Now()))
+	case refreshWatchStoppedMsg:
+		m.watchRefresh = nil
 	case pollMsg:
+		if msg.sequence < m.appliedSequence {
+			return m, nil
+		}
+		m.appliedSequence = msg.sequence
+		m.polling = false
 		m.err = msg.err
 		if msg.err == nil {
 			m.applyPoll(msg)
 		}
-	case focusMsg:
-		if self, ok := msg.panes[m.self]; ok {
-			m.active, m.current = self.Visible, self.Current
+		if m.pendingPoll {
+			m.pendingPoll = false
+			return m, m.beginPoll()
 		}
-		for i := range m.agents {
-			if p, ok := msg.panes[m.agents[i].Pane.ID]; ok {
-				m.agents[i].Pane.Visible, m.agents[i].Pane.Current = p.Visible, p.Current
-			}
-		}
-		m.syncCursor(msg.sel)
 	case tea.MouseMsg:
 		// Press and release both count: when the sidebar pane is inactive,
 		// tmux uses the press to focus it and only forwards the release.
@@ -204,15 +213,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				jumpTo(m.agents[m.cursor].Pane.ID)
 			}
 		case "r":
-			return m, m.poll
+			return m, m.requestPoll(time.Now())
 		}
 	}
 	return m, nil
 }
 
 func (m *model) applyPoll(msg pollMsg) {
+	cursorKey := ""
+	if m.cursor >= 0 && m.cursor < len(m.agents) {
+		cursorKey = m.agents[m.cursor].Key
+	}
 	m.agents = msg.agents
-	m.window, m.active, m.current = msg.window, msg.active, msg.current
+	m.selectKey(cursorKey)
+	m.window, m.active = msg.window, msg.active
 	m.layout = msg.layout
 	now := time.Now()
 	prev := make(map[string]Status, len(m.agents))
@@ -251,7 +265,8 @@ func (m *model) applyPoll(msg pollMsg) {
 func (m *model) moveCursor(i int) {
 	m.cursor = i
 	if i >= 0 && i < len(m.agents) {
-		writeSelection(m.agents[i].Key)
+		m.selection = m.agents[i].Key
+		writeSelection(m.selection)
 	}
 }
 
@@ -267,7 +282,12 @@ func (m *model) syncCursor(selected string) {
 		m.cursor = -1
 		return
 	}
-	if !m.followFocus() {
+	focusChanged := m.followFocus()
+	if selected != m.selection {
+		m.selection = selected
+		if focusChanged {
+			return
+		}
 		m.selectKey(selected)
 	}
 }
@@ -307,7 +327,7 @@ func (m *model) followFocus() bool {
 	}
 	for i, a := range m.agents {
 		if a.Key == focused {
-			m.moveCursor(i)
+			m.cursor = i
 			return true
 		}
 	}
@@ -324,7 +344,7 @@ func (m model) glyph(a Agent) (string, lipgloss.Color) {
 	case a.Status == Blocked:
 		return "●", m.th.alert
 	case a.Status == Busy:
-		return "●", pulseColor(m.th.busy, m.th.busyGlow, m.frame/ticksPerRefresh)
+		return "●", pulseColor(m.th.busy, m.th.busyGlow, m.frame/ticksPerPulse)
 	case m.done(a):
 		return "✓", m.th.accent
 	default:
@@ -470,6 +490,11 @@ func runSidebar(bin string) error {
 		}
 		paintSidebar(self, string(loadTheme(globalOptions()).background))
 	}
-	_, err := tea.NewProgram(newModel(bin), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	m := newModel(bin)
+	if watcher, watchErr := newRefreshWatcher(); watchErr == nil {
+		defer watcher.Close()
+		m.watchRefresh = watchRefresh(watcher)
+	}
+	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }

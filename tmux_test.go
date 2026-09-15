@@ -103,27 +103,27 @@ func TestSidebarBackgroundFollowsTheme(t *testing.T) {
 	}
 	// The running sidebar's normal refresh must update the stored styles.
 	run("set-option", "-g", "@th_base", "#2e3440")
-	m.refresh()
+	m.beginPoll()
 	if got := style(); got != "bg=#2e3440|bg=#2e3440" {
 		t.Fatalf("style after theme switch = %q, want the new @th_base", got)
 	}
 	run("set-option", "-g", "@sentinela_bg", "#000000")
-	m.refresh()
+	m.beginPoll()
 	if got := style(); got != "bg=#000000|bg=#000000" {
 		t.Fatalf("style with @sentinela_bg = %q, want the override", got)
 	}
 	run("set-option", "-g", "@th_base", "#ffffff")
-	m.refresh()
+	m.beginPoll()
 	if got := style(); got != "bg=#000000|bg=#000000" {
 		t.Fatalf("theme change replaced the explicit background: %q", got)
 	}
 	run("set-option", "-gu", "@sentinela_bg")
-	m.refresh()
+	m.beginPoll()
 	if got := style(); got != "bg=#ffffff|bg=#ffffff" {
 		t.Fatalf("style after removing override = %q, want the current theme", got)
 	}
 	run("set-option", "-gu", "@th_base")
-	m.refresh()
+	m.beginPoll()
 	if got := style(); got != "default|default" {
 		t.Fatalf("style without colors = %q, want default", got)
 	}
@@ -161,12 +161,12 @@ func TestSidebarBackgroundInheritsWindowStyle(t *testing.T) {
 		t.Fatalf("initial inherited style = %q, want bg=blue|bg=red", got)
 	}
 	run("set-option", "-g", "@th_base", "green")
-	m.refresh()
+	m.beginPoll()
 	if got := style(); got != "bg=green|bg=green" {
 		t.Fatalf("style after adding a theme = %q, want bg=green|bg=green", got)
 	}
 	run("set-option", "-gu", "@th_base")
-	m.refresh()
+	m.beginPoll()
 	if got := style(); got != "bg=blue|bg=red" {
 		t.Fatalf("style after removing theme = %q, want inheritance restored", got)
 	}
@@ -179,7 +179,7 @@ func TestSidebarBackgroundRefreshOnlyOnChange(t *testing.T) {
 	paintSidebar("%0", string(m.th.background))
 	run("set-option", "-p", "-t", "%0", "window-style", "bg=red")
 	run("set-option", "-g", "@th_text", "#ffffff")
-	m.refresh()
+	m.beginPoll()
 	if got := run("display-message", "-p", "-t", "%0", "#{window-style}"); got != "bg=red" {
 		t.Fatalf("unchanged background was repainted: %q", got)
 	}

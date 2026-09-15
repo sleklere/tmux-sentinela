@@ -40,7 +40,7 @@ func TestPulseColorKeepsUnsupportedColor(t *testing.T) {
 
 func TestBusyPulseChangesOnRefresh(t *testing.T) {
 	m := testModel()
-	m.frame = ticksPerRefresh - 1
+	m.frame = ticksPerPulse - 1
 	_, before := m.glyph(Agent{Status: Busy})
 	m.frame++
 	_, after := m.glyph(Agent{Status: Busy})
@@ -170,65 +170,75 @@ func TestKeyboardNavigation(t *testing.T) {
 	}
 }
 
-func TestFocusPollPreservesManualSelection(t *testing.T) {
-	isolateState(t)
-	m := testModel()
-	m.self, m.window = "%sidebar", "@empty"
-	m.agents = []Agent{
-		{Key: "claude:100", Pane: Pane{ID: "%1", WindowID: "@agent"}},
-		{Key: "opencode:200", Pane: Pane{ID: "%2", WindowID: "@agent"}},
-	}
-	for _, active := range []bool{false, true, true, false} {
-		if active {
-			m.moveCursor(1)
-		}
-		updated, _ := m.Update(focusMsg{panes: map[string]Pane{m.self: {Visible: active}}, sel: readSelection()})
-		m = updated.(model)
-		want := -1
-		if active {
-			want = 1
-		}
-		if m.cursor != want {
-			t.Fatalf("sidebar active=%v: cursor=%d, want %d", active, m.cursor, want)
-		}
-	}
-}
-
-func TestFocusPollUpdatesSidebarWindowVisibility(t *testing.T) {
-	m := testModel()
-	m.self = "%sidebar"
-	updated, _ := m.Update(focusMsg{panes: map[string]Pane{
-		"%sidebar": {Current: true},
-	}})
-	if !updated.(model).current {
-		t.Fatal("sidebar window should be current")
-	}
-}
-
-func TestFocusPollFollowsActivePaneBeforeCurrentWindow(t *testing.T) {
+func TestPollFollowsActivePaneBeforeCurrentWindow(t *testing.T) {
 	isolateState(t)
 	m := testModel()
 	m.window = "@agent"
-	m.agents = []Agent{
+	agents := []Agent{
 		{Key: "claude:100", Pane: Pane{ID: "%1", WindowID: "@agent"}},
-		{Key: "opencode:200", Pane: Pane{ID: "%2", WindowID: "@agent"}},
+		{Key: "opencode:200", Pane: Pane{ID: "%2", WindowID: "@agent", Current: true, Visible: true}},
 	}
-	focus := focusMsg{panes: map[string]Pane{"%1": {Current: true}, "%2": {Current: true, Visible: true}}}
-	updated, _ := m.Update(focus)
-	m = updated.(model)
-	if m.cursor != 1 || readSelection() != "opencode:200" {
+	writeSelection("claude:100")
+	m.applyPoll(pollMsg{agents: agents, window: "@agent", sel: readSelection()})
+	if m.cursor != 1 {
 		t.Fatal("active pane did not win over current window")
 	}
+	m.applyPoll(pollMsg{agents: agents, window: "@agent", sel: readSelection()})
+	if m.cursor != 1 {
+		t.Fatal("stale shared selection overwrote stable focus")
+	}
 	m.moveCursor(0)
-	focus.sel = readSelection()
-	updated, _ = m.Update(focus)
-	if updated.(model).cursor != 0 {
+	m.applyPoll(pollMsg{agents: agents, window: "@agent", sel: readSelection()})
+	if m.cursor != 0 {
 		t.Fatal("unchanged focus overwrote manual navigation")
 	}
-	focus.panes["%2"] = Pane{}
-	updated, _ = updated.Update(focus)
-	if updated.(model).focused != "claude:100" {
+	agents[0].Pane.Current = true
+	agents[1].Pane.Current, agents[1].Pane.Visible = false, false
+	m.applyPoll(pollMsg{agents: agents, window: "@agent"})
+	if m.focused != "claude:100" {
 		t.Fatal("did not fall back to the agent in the current window")
+	}
+}
+
+func TestRefreshEventQueuesLatestPoll(t *testing.T) {
+	m := testModel()
+	m.requestedSequence, m.polling = 1, true
+	updated, _ := m.Update(refreshMsg{})
+	m = updated.(model)
+	if m.requestedSequence != 2 || !m.pendingPoll {
+		t.Fatalf("event while polling: sequence=%d pending=%v", m.requestedSequence, m.pendingPoll)
+	}
+	updated, cmd := m.Update(pollMsg{sequence: 1})
+	m = updated.(model)
+	if cmd == nil || !m.polling || m.pendingPoll || m.appliedSequence != 1 {
+		t.Fatalf("queued poll not started: polling=%v pending=%v applied=%d", m.polling, m.pendingPoll, m.appliedSequence)
+	}
+}
+
+func TestFallbackPollRunsEveryTwoSeconds(t *testing.T) {
+	m := testModel()
+	base := time.Now()
+	m.lastPollRequested = base
+	updated, _ := m.Update(tickMsg(base.Add(fallbackInterval - time.Millisecond)))
+	m = updated.(model)
+	if m.requestedSequence != 0 || m.polling {
+		t.Fatal("fallback poll ran early")
+	}
+	updated, _ = m.Update(tickMsg(base.Add(fallbackInterval)))
+	m = updated.(model)
+	if m.requestedSequence != 1 || !m.polling {
+		t.Fatalf("fallback did not request poll: sequence=%d polling=%v", m.requestedSequence, m.polling)
+	}
+}
+
+func TestStalePollCannotReplaceNewerSnapshot(t *testing.T) {
+	m := testModel()
+	m.appliedSequence = 2
+	m.agents = []Agent{{Key: "new"}}
+	updated, _ := m.Update(pollMsg{sequence: 1, agents: []Agent{{Key: "old"}}})
+	m = updated.(model)
+	if len(m.agents) != 1 || m.agents[0].Key != "new" || m.appliedSequence != 2 {
+		t.Fatalf("stale poll replaced state: agents=%v sequence=%d", m.agents, m.appliedSequence)
 	}
 }
 

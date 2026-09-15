@@ -6,7 +6,8 @@ import { mkdir, rename, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-const dir = join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "tmux-sentinela", "opencode");
+const stateDir = join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "tmux-sentinela");
+const dir = join(stateDir, "opencode");
 const file = join(dir, `${process.pid}.json`);
 
 export const TmuxSentinela = async ({ directory }) => {
@@ -23,9 +24,10 @@ export const TmuxSentinela = async ({ directory }) => {
     const sessions = [...roots.values()];
     const status = pending.size ? "blocked" : sessions.some((s) => s.status === "busy") ? "busy" : "idle";
     const name = sessions.at(-1)?.title || "";
-    const state = { pid: process.pid, pane: process.env.TMUX_PANE || "", name, status, updated: Date.now(), cwd: directory };
+    const revision = ++sequence;
+    const state = { pid: process.pid, pane: process.env.TMUX_PANE || "", name, status, updated: Date.now(), revision, cwd: directory };
     const data = JSON.stringify(state);
-    const temp = `${file}.${sequence++}.tmp`;
+    const temp = `${file}.${revision}.tmp`;
     writes = writes
       .then(async () => {
         await writeFile(temp, data);

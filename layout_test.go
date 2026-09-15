@@ -59,7 +59,7 @@ func TestSidebarWidthSyncAcrossWindows(t *testing.T) {
 	m.self = a
 	poll := func() {
 		t.Helper()
-		msg := m.poll().(pollMsg)
+		msg := m.poll(0).(pollMsg)
 		if msg.err != nil {
 			t.Fatal(msg.err)
 		}

@@ -85,7 +85,7 @@ Focusing the sidebar does not name the window after the plugin: automatic
 renaming uses the last work pane and preserves your rename format. Manually
 named windows keep their names.
 
-Resizing a sidebar shares its width with the others within about a second and
+Resizing a sidebar shares its width with the others within about two seconds and
 updates `@sentinela_width` for new windows. Zoom and terminal-size changes do
 not replace the shared width; small windows use as much of it as fits.
 
@@ -115,8 +115,9 @@ would without the plugin.
 
 Colors resolve in order: `@sentinela_color_*`, then the `@th_*` globals of a
 tmux-wide theme if you keep one, then a rose-pine fallback. Changing them
-applies live to open sidebars: colors are re-read every second, and the pane
-background is repainted only when its resolved color changes. Without
+applies live to open sidebars: colors are re-read on events and at least every
+two seconds, and the pane background is repainted only when its resolved color
+changes. Without
 `@sentinela_bg` or `@th_base`, the sidebar inherits the window's styles.
 
 With tmux-resurrect, to restore the sidebar as a process instead of an empty
@@ -129,11 +130,14 @@ shell: `set -g @resurrect-processes '"~tmux-sentinela sidebar"'`.
 | Claude Code | Claude session registry (`status`), mirrored by hooks for custom config dirs; pid → pane via the process tree | hook `Notification permission_prompt` or `PreToolUse AskUserQuestion`; cleared by any other hook | `name` (honors `/rename`) |
 | OpenCode | plugin: `session.status` / `session.idle` | `permission.updated` or `permission.asked` until `permission.replied` | `title` of the root session |
 
-State lives in `~/.cache/tmux-sentinela/`. Entries of dead processes are dropped.
+State lives in `~/.cache/tmux-sentinela/`. Agent and tmux events wake every
+sidebar immediately; a two-second poll recovers missed events. Ordered refresh
+sequences prevent an older snapshot from replacing a newer one. Entries of dead
+processes are dropped.
 
 ## Binary commands
 
-`sidebar` (TUI), `ensure`, `toggle`, `prune`, `status`, `claude-hook`.
+`sidebar` (TUI), `ensure`, `toggle`, `prune`, `refresh`, `status`, `claude-hook`.
 
 ## Tests and CI
 

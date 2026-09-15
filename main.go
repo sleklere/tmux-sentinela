@@ -13,6 +13,7 @@ const usage = `usage: tmux-sentinela <command>
   ensure       open a sidebar in every window that has none
   toggle [@id] open/close the sidebar of a window (default: current)
   prune        close sidebars left alone in their window
+  refresh      wake sidebars after a state or focus change
   status       print every pane and detected agent (debug / scripting)
   claude-hook  Claude Code hook entrypoint (JSON on stdin)
 `
@@ -33,6 +34,8 @@ func main() {
 		err = toggleSidebar(bin, arg(2))
 	case "prune":
 		err = pruneSidebars()
+	case "refresh":
+		err = publishRefresh()
 	case "status":
 		err = printStatus()
 	case "claude-hook":

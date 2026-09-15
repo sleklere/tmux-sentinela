@@ -109,7 +109,7 @@ func writeSelection(key string) {
 	if err := os.MkdirAll(stateDir(), 0o755); err != nil {
 		return
 	}
-	atomicWriteFile(selectionFile(), []byte(key), 0o644)
+	_ = atomicWriteFile(selectionFile(), []byte(key), 0o644)
 }
 
 func seenFile(key string) string { return filepath.Join(stateDir(), "seen", key) }
@@ -166,12 +166,13 @@ func claudeBlocked(sessionID string) (bool, time.Time) {
 // --- OpenCode: ~/.cache/tmux-sentinela/opencode/<pid>.json, written by the plugin.
 
 type opencodeState struct {
-	PID     int    `json:"pid"`
-	Pane    string `json:"pane"`
-	Name    string `json:"name"`
-	Status  string `json:"status"` // idle | busy | blocked
-	Updated int64  `json:"updated"`
-	CWD     string `json:"cwd"`
+	PID      int    `json:"pid"`
+	Pane     string `json:"pane"`
+	Name     string `json:"name"`
+	Status   string `json:"status"` // idle | busy | blocked
+	Updated  int64  `json:"updated"`
+	Revision uint64 `json:"revision"`
+	CWD      string `json:"cwd"`
 }
 
 func readOpencodeStates() []opencodeState {
@@ -329,7 +330,6 @@ func collectPanes(panes []Pane) []Agent {
 		}
 		agents = append(agents, a)
 	}
-
 	sort.SliceStable(agents, func(i, j int) bool {
 		return order[agents[i].Pane.ID] < order[agents[j].Pane.ID]
 	})
