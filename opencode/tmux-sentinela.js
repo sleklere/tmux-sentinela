@@ -2,7 +2,7 @@
 // ~/.cache/tmux-sentinela/opencode/<pid>.json for the tmux-sentinela sidebar.
 // Runs inside the opencode server process. The pane comes from TMUX_PANE when
 // inherited; otherwise the sidebar maps pid to pane through the process tree.
-import { mkdir, writeFile, unlink } from "node:fs/promises";
+import { mkdir, rename, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -11,23 +11,38 @@ const file = join(dir, `${process.pid}.json`);
 
 export const TmuxSentinela = async ({ directory }) => {
   const roots = new Map(); // root sessionID -> { title, status }
-  const pending = new Set(); // permission ids awaiting an answer
-  let ready = mkdir(dir, { recursive: true }).catch(() => {});
+  const pending = new Map(); // permission id -> session id
+  const ready = mkdir(dir, { recursive: true }).catch(() => {});
+  let sequence = 0;
+  let writes = Promise.resolve();
+  let disposed = false;
 
   const write = async () => {
     await ready;
+    if (disposed) return;
     const sessions = [...roots.values()];
     const status = pending.size ? "blocked" : sessions.some((s) => s.status === "busy") ? "busy" : "idle";
     const name = sessions.at(-1)?.title || "";
     const state = { pid: process.pid, pane: process.env.TMUX_PANE || "", name, status, updated: Date.now(), cwd: directory };
-    await writeFile(file, JSON.stringify(state)).catch(() => {});
+    const data = JSON.stringify(state);
+    const temp = `${file}.${sequence++}.tmp`;
+    writes = writes
+      .then(async () => {
+        await writeFile(temp, data);
+        await rename(temp, file);
+      })
+      .catch(() => {})
+      .finally(() => unlink(temp).catch(() => {}));
+    await writes;
   };
 
   const root = (id) => roots.get(id) ?? (roots.set(id, { title: "", status: "idle" }), roots.get(id));
 
-  const cleanup = () => unlink(file).catch(() => {});
-  process.once("exit", cleanup);
-  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.once(sig, cleanup);
+  const cleanup = async () => {
+    disposed = true;
+    await writes;
+    await unlink(file).catch(() => {});
+  };
 
   await write();
 
@@ -50,17 +65,25 @@ export const TmuxSentinela = async ({ directory }) => {
           break;
         case "session.deleted":
           roots.delete(p.info.id);
+          for (const [id, sessionID] of pending) {
+            if (sessionID === p.info.id) pending.delete(id);
+          }
+          break;
+        case "session.error":
+          if (roots.has(p.sessionID)) root(p.sessionID).status = "idle";
           break;
         case "permission.updated":
-          pending.add(p.id);
+        case "permission.asked":
+          pending.set(p.id, p.sessionID);
           break;
         case "permission.replied":
-          pending.delete(p.permissionID);
+          pending.delete(p.permissionID || p.requestID);
           break;
         default:
           return;
       }
       await write();
     },
+    dispose: cleanup,
   };
 };
