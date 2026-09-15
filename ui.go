@@ -43,6 +43,9 @@ func loadTheme(o map[string]string) theme {
 
 const busyCycleFrames = 16
 
+const tickInterval = 240 * time.Millisecond
+const ticksPerRefresh = 4
+
 const rowHeight = 2 // name line + detail line
 
 type pollMsg struct {
@@ -138,7 +141,7 @@ func (m *model) refresh() tea.Cmd {
 }
 
 func tick() tea.Cmd {
-	return tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg(t) })
+	return tea.Tick(tickInterval, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
 func (m model) Init() tea.Cmd { return tea.Batch(m.poll, tick()) }
@@ -149,13 +152,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 	case tickMsg:
 		m.frame++
-		if m.frame%8 == 0 { // ~1s data refresh, 120ms busy animation
+		if m.frame%ticksPerRefresh == 0 { // ~1s data and animation refresh
 			return m, tea.Batch(tick(), m.refresh())
 		}
-		if m.frame%2 == 0 { // ~240ms focus refresh
-			return m, tea.Batch(tick(), focusPoll)
-		}
-		return m, tick()
+		return m, tea.Batch(tick(), focusPoll)
 	case pollMsg:
 		m.err = msg.err
 		if msg.err == nil {
@@ -319,7 +319,7 @@ func (m model) glyph(a Agent) (string, lipgloss.Color) {
 	case a.Status == Blocked:
 		return "●", m.th.alert
 	case a.Status == Busy:
-		return "●", pulseColor(m.th.busy, m.th.busyGlow, m.frame)
+		return "●", pulseColor(m.th.busy, m.th.busyGlow, m.frame/ticksPerRefresh)
 	case m.done(a):
 		return "✓", m.th.accent
 	default:
@@ -440,8 +440,14 @@ func since(t time.Time) string {
 
 func truncate(s string, n int) string {
 	r := []rune(s)
-	if n <= 1 || len(r) <= n {
+	if n <= 0 {
+		return ""
+	}
+	if len(r) <= n {
 		return s
+	}
+	if n == 1 {
+		return "…"
 	}
 	return string(r[:n-1]) + "…"
 }

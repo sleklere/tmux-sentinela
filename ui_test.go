@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +35,17 @@ func TestPulseColorKeepsUnsupportedColor(t *testing.T) {
 	from := lipgloss.Color("3")
 	if got := pulseColor(from, "#ff8a1f", 4); got != from {
 		t.Fatalf("pulseColor() = %q, want %q", got, from)
+	}
+}
+
+func TestBusyPulseChangesOnRefresh(t *testing.T) {
+	m := testModel()
+	m.frame = ticksPerRefresh - 1
+	_, before := m.glyph(Agent{Status: Busy})
+	m.frame++
+	_, after := m.glyph(Agent{Status: Busy})
+	if before == after {
+		t.Fatal("busy pulse did not change on refresh")
 	}
 }
 
@@ -246,6 +258,45 @@ func TestViewStates(t *testing.T) {
 	updated, _ = updated.Update(tea.WindowSizeMsg{})
 	if got := updated.View(); got != "" {
 		t.Fatalf("view before layout = %q", got)
+	}
+}
+
+func TestViewAgentRows(t *testing.T) {
+	m := testModel()
+	m.cursor = 1
+	m.agents = []Agent{
+		{Key: "claude:100", Kind: "claude", Name: "done", Status: Idle,
+			Since: m.started, Pane: Pane{Session: "work", WindowIndex: 1}},
+		{Key: "opencode:200", Kind: "opencode", Name: "blocked", Status: Blocked,
+			Pane: Pane{Session: "code", WindowIndex: 2}},
+	}
+	m.seen["claude:100"] = m.started.Add(-time.Minute)
+
+	plain := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(m.View(), "")
+	want := " agents 1\n\n" +
+		"  ✓ done\n" +
+		"    claude  work:1\n" +
+		"▌ ● blocked\n" +
+		"▌   opencode  code:2\n"
+	if plain != want {
+		t.Fatalf("view =\n%q\nwant =\n%q", plain, want)
+	}
+}
+
+func TestTruncateBounds(t *testing.T) {
+	for _, tt := range []struct {
+		n    int
+		want string
+	}{
+		{-1, ""},
+		{0, ""},
+		{1, "…"},
+		{2, "a…"},
+		{3, "abc"},
+	} {
+		if got := truncate("abc", tt.n); got != tt.want {
+			t.Errorf("truncate(abc, %d) = %q, want %q", tt.n, got, tt.want)
+		}
 	}
 }
 
