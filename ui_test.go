@@ -194,6 +194,17 @@ func TestFocusPollPreservesManualSelection(t *testing.T) {
 	}
 }
 
+func TestFocusPollUpdatesSidebarWindowVisibility(t *testing.T) {
+	m := testModel()
+	m.self = "%sidebar"
+	updated, _ := m.Update(focusMsg{panes: map[string]Pane{
+		"%sidebar": {Current: true},
+	}})
+	if !updated.(model).current {
+		t.Fatal("sidebar window should be current")
+	}
+}
+
 func TestFocusPollFollowsActivePaneBeforeCurrentWindow(t *testing.T) {
 	isolateState(t)
 	m := testModel()

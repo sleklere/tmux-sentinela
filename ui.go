@@ -49,13 +49,14 @@ const ticksPerRefresh = 4
 const rowHeight = 2 // name line + detail line
 
 type pollMsg struct {
-	agents []Agent
-	layout sidebarLayout
-	leader bool   // this sidebar is the first one in tmux order: it notifies
-	active bool   // this sidebar pane has focus
-	window string // window containing this sidebar
-	sel    string // key of the agent selected from any sidebar
-	err    error
+	agents  []Agent
+	layout  sidebarLayout
+	leader  bool   // this sidebar is the first one in tmux order: it notifies
+	active  bool   // this sidebar pane has focus
+	current bool   // this sidebar belongs to a visible window
+	window  string // window containing this sidebar
+	sel     string // key of the agent selected from any sidebar
+	err     error
 }
 type focusMsg struct {
 	panes map[string]Pane // fresh pane flags, by pane id
@@ -80,6 +81,7 @@ type model struct {
 	focused string            // key of the agent whose pane had focus last poll
 	window  string            // window containing this sidebar
 	active  bool              // this sidebar pane has focus
+	current bool              // this sidebar belongs to a visible window
 	layout  sidebarLayout
 }
 
@@ -95,13 +97,13 @@ func (m model) poll() tea.Msg {
 		return pollMsg{err: err}
 	}
 	// Only one sidebar announces, so N windows do not mean N notifications.
-	firstSidebar, window, active := "", "", false
+	firstSidebar, window, active, current := "", "", false, false
 	for _, p := range panes {
 		if p.Sidebar && firstSidebar == "" {
 			firstSidebar = p.ID
 		}
 		if p.ID == m.self {
-			window, active = p.WindowID, p.Visible
+			window, active, current = p.WindowID, p.Visible, p.Current
 		}
 	}
 	var layout sidebarLayout
@@ -113,7 +115,7 @@ func (m model) poll() tea.Msg {
 		panes = layout.panes
 	}
 	return pollMsg{agents: collectPanes(panes), leader: leader,
-		active: active, window: window, sel: readSelection(), layout: layout}
+		active: active, current: current, window: window, sel: readSelection(), layout: layout}
 }
 
 // focusPoll is the cheap poll between full ones: one list-panes, no ps.
@@ -155,6 +157,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.frame%ticksPerRefresh == 0 { // ~1s data and animation refresh
 			return m, tea.Batch(tick(), m.refresh())
 		}
+		if !m.current {
+			return m, tick()
+		}
 		return m, tea.Batch(tick(), focusPoll)
 	case pollMsg:
 		m.err = msg.err
@@ -163,7 +168,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case focusMsg:
 		if self, ok := msg.panes[m.self]; ok {
-			m.active = self.Visible
+			m.active, m.current = self.Visible, self.Current
 		}
 		for i := range m.agents {
 			if p, ok := msg.panes[m.agents[i].Pane.ID]; ok {
@@ -207,7 +212,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) applyPoll(msg pollMsg) {
 	m.agents = msg.agents
-	m.window, m.active = msg.window, msg.active
+	m.window, m.active, m.current = msg.window, msg.active, msg.current
 	m.layout = msg.layout
 	now := time.Now()
 	prev := make(map[string]Status, len(m.agents))
