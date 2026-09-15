@@ -127,7 +127,7 @@ shell: `set -g @resurrect-processes '"~tmux-sentinela sidebar"'`.
 | Agent | busy / idle | blocked | name |
 |---|---|---|---|
 | Claude Code | Claude session registry (`status`), mirrored by hooks for custom config dirs; pid → pane via the process tree | hook `Notification permission_prompt` or `PreToolUse AskUserQuestion`; cleared by any other hook | `name` (honors `/rename`) |
-| OpenCode | plugin: `session.status` / `session.idle` | `permission.updated` until `permission.replied` | `title` of the root session |
+| OpenCode | plugin: `session.status` / `session.idle` | `permission.updated` or `permission.asked` until `permission.replied` | `title` of the root session |
 
 State lives in `~/.cache/tmux-sentinela/`. Entries of dead processes are dropped.
 
@@ -138,6 +138,7 @@ State lives in `~/.cache/tmux-sentinela/`. Entries of dead processes are dropped
 ## Tests and CI
 
 ```sh
+node --test opencode/tmux-sentinela.test.js
 go test -race -count=1 -coverprofile=coverage.out ./...
 go tool cover -func=coverage.out
 go vet ./...

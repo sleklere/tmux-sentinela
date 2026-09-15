@@ -43,6 +43,8 @@ jobs:
         run: |
           bash -n install-binary.sh
           bash -n tmux-sentinela.tmux
+      - name: Test OpenCode plugin
+        run: node --test opencode/tmux-sentinela.test.js
       - name: Test with race detection and coverage
         run: go test -race -count=1 -coverprofile=coverage.out ./...
       - name: Report coverage
