@@ -107,6 +107,26 @@ func TestViewingAgentClearsDoneInEverySidebar(t *testing.T) {
 	}
 }
 
+func TestHermesStatusTimesFollowScreenTransitions(t *testing.T) {
+	isolateState(t)
+	m := testModel()
+	agent := Agent{Key: "hermes:%1", Kind: "hermes", Status: Idle}
+	m.applyPoll(pollMsg{agents: []Agent{agent}})
+	if got := m.agents[0].Since; !got.Equal(m.started) {
+		t.Fatalf("initial since = %v, want sidebar start %v", got, m.started)
+	}
+	first := m.agents[0].Since
+	m.applyPoll(pollMsg{agents: []Agent{agent}})
+	if got := m.agents[0].Since; !got.Equal(first) {
+		t.Fatalf("stable status since = %v, want %v", got, first)
+	}
+	agent.Status = Busy
+	m.applyPoll(pollMsg{agents: []Agent{agent}})
+	if got := m.agents[0].Since; !got.After(first) {
+		t.Fatalf("transition since = %v, want after %v", got, first)
+	}
+}
+
 func TestCursorVisibility(t *testing.T) {
 	for _, tt := range []struct {
 		name   string

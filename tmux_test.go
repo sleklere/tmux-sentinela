@@ -54,6 +54,17 @@ func waitForWindowName(t *testing.T, run func(...string) string, want string) {
 	}
 }
 
+func TestListPanesIncludesCurrentCommand(t *testing.T) {
+	isolatedTmux(t)
+	panes, err := listPanes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(panes) != 1 || panes[0].Command == "" {
+		t.Fatalf("panes = %+v, want one pane with its current command", panes)
+	}
+}
+
 func TestSidebarDoesNotNameWindow(t *testing.T) {
 	run := isolatedTmux(t)
 	run("set-option", "-w", "-t", "@0", "automatic-rename-format", "#{pane_title},#{pane_index}")

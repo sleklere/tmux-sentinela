@@ -23,7 +23,7 @@ const (
 )
 
 type Agent struct {
-	Kind   string // claude | opencode
+	Kind   string // claude | opencode | hermes
 	Name   string
 	Status Status
 	Since  time.Time // last status change
@@ -330,6 +330,8 @@ func collectPanes(panes []Pane) []Agent {
 		}
 		agents = append(agents, a)
 	}
+	agents = append(agents, collectHermesAgents(panes, capturePaneScreen)...)
+
 	sort.SliceStable(agents, func(i, j int) bool {
 		return order[agents[i].Pane.ID] < order[agents[j].Pane.ID]
 	})

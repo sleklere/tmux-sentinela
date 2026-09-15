@@ -224,11 +224,12 @@ func (m *model) applyPoll(msg pollMsg) {
 	if m.cursor >= 0 && m.cursor < len(m.agents) {
 		cursorKey = m.agents[m.cursor].Key
 	}
+	now := time.Now()
+	trackHermesStatusTimes(msg.agents, m.agents, m.started, now)
 	m.agents = msg.agents
 	m.selectKey(cursorKey)
 	m.window, m.active = msg.window, msg.active
 	m.layout = msg.layout
-	now := time.Now()
 	prev := make(map[string]Status, len(m.agents))
 	for _, a := range m.agents {
 		seen, known := m.seen[a.Key]
@@ -257,6 +258,27 @@ func (m *model) applyPoll(msg pollMsg) {
 	m.syncCursor(msg.sel)
 	if m.cursor >= len(m.agents) {
 		m.cursor = max(0, len(m.agents)-1)
+	}
+}
+
+func trackHermesStatusTimes(agents, previous []Agent, started, now time.Time) {
+	byKey := make(map[string]Agent, len(previous))
+	for _, agent := range previous {
+		byKey[agent.Key] = agent
+	}
+	for i := range agents {
+		agent := &agents[i]
+		if agent.Kind != "hermes" || !agent.Since.IsZero() {
+			continue
+		}
+		agent.Since = started
+		if old, ok := byKey[agent.Key]; ok {
+			if old.Status == agent.Status {
+				agent.Since = old.Since
+			} else {
+				agent.Since = now
+			}
+		}
 	}
 }
 

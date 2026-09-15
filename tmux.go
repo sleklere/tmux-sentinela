@@ -12,6 +12,7 @@ import (
 type Pane struct {
 	ID          string
 	PID         int
+	Command     string
 	Session     string
 	WindowID    string
 	WindowIndex int
@@ -32,7 +33,7 @@ func tmux(args ...string) (string, error) {
 	return strings.TrimRight(string(out), "\n"), err
 }
 
-const paneFormat = "#{pane_id}\t#{pane_pid}\t#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}\t#{pane_index}\t#{pane_current_path}\t#{pane_active}\t#{window_active}\t#{session_attached}\t#{@sentinela_sidebar}\t#{pane_width}\t#{window_width}\t#{window_zoomed_flag}"
+const paneFormat = "#{pane_id}\t#{pane_pid}\t#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}\t#{pane_index}\t#{pane_current_path}\t#{pane_active}\t#{window_active}\t#{session_attached}\t#{@sentinela_sidebar}\t#{pane_width}\t#{window_width}\t#{window_zoomed_flag}\t#{pane_current_command}"
 
 // listPanes returns every pane of every session, in tmux order.
 func listPanes() ([]Pane, error) {
@@ -43,7 +44,7 @@ func listPanes() ([]Pane, error) {
 	var panes []Pane
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Split(line, "\t")
-		if len(f) < 15 {
+		if len(f) < 16 {
 			continue
 		}
 		pid, _ := strconv.Atoi(f[1])
@@ -58,7 +59,7 @@ func listPanes() ([]Pane, error) {
 			Visible: f[8] == "1" && f[9] == "1" && attached > 0,
 			Current: f[9] == "1" && attached > 0,
 			Sidebar: f[11] != "",
-			Width:   width, WindowWidth: windowWidth, Zoomed: f[14] == "1",
+			Width:   width, WindowWidth: windowWidth, Zoomed: f[14] == "1", Command: f[15],
 		})
 	}
 	return panes, nil

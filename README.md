@@ -2,7 +2,7 @@
 
 *Sentinela* is Spanish for sentinel.
 
-A tmux sidebar that lists every AI coding agent (Claude Code, OpenCode)
+A tmux sidebar that lists every AI coding agent (Claude Code, OpenCode, Hermes)
 running in any session, with its state, and jumps to its pane.
 
 ```
@@ -129,11 +129,17 @@ shell: `set -g @resurrect-processes '"~tmux-sentinela sidebar"'`.
 |---|---|---|---|
 | Claude Code | Claude session registry (`status`), mirrored by hooks for custom config dirs; pid → pane via the process tree | hook `Notification permission_prompt` or `PreToolUse AskUserQuestion`; cleared by any other hook | `name` (honors `/rename`) |
 | OpenCode | plugin: `session.status` / `session.idle` | `permission.updated` or `permission.asked` until `permission.replied` | `title` of the root session |
+| Hermes over SSH | live Hermes composer rendered in the local tmux pane | approval, clarification, sudo and secret prompt symbols | session-title badge, then active skin name |
 
 State lives in `~/.cache/tmux-sentinela/`. Agent and tmux events wake every
 sidebar immediately; a two-second poll recovers missed events. Ordered refresh
 sequences prevent an older snapshot from replacing a newer one. Entries of dead
 processes are dropped.
+
+Hermes detection needs only this plugin on the local machine: it reads the
+screen already rendered through SSH and never connects to or installs anything
+on the remote host. Keep Hermes' status bar enabled; visual state is refreshed
+by the two-second fallback poll because tmux has no pane-output hook.
 
 ## Binary commands
 
