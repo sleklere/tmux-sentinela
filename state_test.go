@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -60,6 +62,56 @@ func TestSharedState(t *testing.T) {
 	removeSeen(key)
 	if _, ok := readSeen(key); ok {
 		t.Fatal("removed seen timestamp was returned")
+	}
+}
+
+func TestAtomicWriteNeverExposesPartialContent(t *testing.T) {
+	isolateState(t)
+	path := filepath.Join(stateDir(), "atomic")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := bytes.Repeat([]byte("a"), 32*1024)
+	b := bytes.Repeat([]byte("b"), 32*1024)
+	if err := atomicWriteFile(path, a, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var writers sync.WaitGroup
+	for i := range 4 {
+		writers.Add(1)
+		go func() {
+			defer writers.Done()
+			value := a
+			if i%2 == 1 {
+				value = b
+			}
+			for range 50 {
+				if err := atomicWriteFile(path, value, 0o600); err != nil {
+					t.Errorf("atomicWriteFile: %v", err)
+					return
+				}
+			}
+		}()
+	}
+	done := make(chan struct{})
+	go func() {
+		writers.Wait()
+		close(done)
+	}()
+	for {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(data, a) && !bytes.Equal(data, b) {
+			t.Fatalf("reader observed partial content: %d bytes", len(data))
+		}
+		select {
+		case <-done:
+			return
+		default:
+		}
 	}
 }
 

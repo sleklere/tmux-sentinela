@@ -81,7 +81,7 @@ func writeClaudeSession(s claudeSession) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, fmt.Sprintf("%d.json", s.PID)), b, 0o600)
+	return atomicWriteFile(filepath.Join(dir, fmt.Sprintf("%d.json", s.PID)), b, 0o600)
 }
 
 func removeMirroredClaudeSession(sessionID string) {

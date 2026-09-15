@@ -109,7 +109,7 @@ func writeSelection(key string) {
 	if err := os.MkdirAll(stateDir(), 0o755); err != nil {
 		return
 	}
-	os.WriteFile(selectionFile(), []byte(key), 0o644)
+	atomicWriteFile(selectionFile(), []byte(key), 0o644)
 }
 
 func seenFile(key string) string { return filepath.Join(stateDir(), "seen", key) }
@@ -131,10 +131,29 @@ func writeSeen(key string, at time.Time) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
 	}
-	os.WriteFile(seenFile(key), []byte(strconv.FormatInt(at.UnixNano(), 10)), 0o600)
+	atomicWriteFile(seenFile(key), []byte(strconv.FormatInt(at.UnixNano(), 10)), 0o600)
 }
 
 func removeSeen(key string) { os.Remove(seenFile(key)) }
+
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err = tmp.Chmod(perm); err == nil {
+		_, err = tmp.Write(data)
+	}
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
+}
 
 func claudeBlocked(sessionID string) (bool, time.Time) {
 	st, err := os.Stat(filepath.Join(stateDir(), "claude-blocked", sessionID))
