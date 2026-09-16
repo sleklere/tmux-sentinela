@@ -127,19 +127,33 @@ shell: `set -g @resurrect-processes '"~tmux-sentinela sidebar"'`.
 
 | Agent | busy / idle | blocked | name |
 |---|---|---|---|
-| Claude Code | Claude session registry (`status`), mirrored by hooks for custom config dirs; pid → pane via the process tree | hook `Notification permission_prompt` or `PreToolUse AskUserQuestion`; cleared by any other hook | `name` (honors `/rename`) |
-| OpenCode | plugin: `session.status` / `session.idle` | `permission.updated` or `permission.asked` until `permission.replied` | `title` of the root session |
-| Hermes over SSH | live Hermes composer rendered in the local tmux pane | approval, clarification, sudo and secret prompt symbols | session-title badge, then active skin name |
+| Claude Code, local | Claude session registry (`status`), mirrored by hooks for custom config dirs; pid → pane via the process tree | hook `Notification permission_prompt` or `PreToolUse AskUserQuestion`; cleared by any other hook | `name` (honors `/rename`) |
+| Claude Code over SSH | live prompt, activity hints and tmux's OSC-derived pane title | confirmation, permission, elicitation and workflow forms | `Claude Code` |
+| OpenCode, local | plugin: `session.status` / `session.idle` | `permission.updated` or `permission.asked` until `permission.replied` | `title` of the root session |
+| OpenCode over SSH | live composer footer, interrupt hint or progress bar | permission marker or form controls | session title from `OC | …`, then `OpenCode` |
+| Hermes, local or over SSH | live Hermes composer rendered in the local tmux pane | approval, clarification, sudo and secret prompt symbols | session-title badge, then active skin name |
 
 State lives in `~/.cache/tmux-sentinela/`. Agent and tmux events wake every
 sidebar immediately; a two-second poll recovers missed events. Ordered refresh
 sequences prevent an older snapshot from replacing a newer one. Entries of dead
 processes are dropped.
 
-Hermes detection needs only this plugin on the local machine: it reads the
-screen already rendered through SSH and never connects to or installs anything
-on the remote host. Keep Hermes' status bar enabled; visual state is refreshed
-by the two-second fallback poll because tmux has no pane-output hook.
+Visual detection needs only this plugin on the local machine: it reads the
+screen already rendered in tmux and never connects to or installs anything on
+the remote host. Local Claude Code and OpenCode state remains authoritative, so
+their panes are not captured or duplicated. Each remaining pane is captured
+once per poll and tested in this order: Hermes, OpenCode over SSH, Claude Code
+over SSH.
+
+| Visual agent | busy | blocked | idle / identity |
+|---|---|---|---|
+| Hermes | active-agent symbol or command progress | approval, question, free-text, sudo or secret prompt | live status bar directly above the composer |
+| OpenCode | interrupt hint or four-or-more progress blocks | `Permission required`, or dismiss + confirm/submit/toggle controls | `OpenCode` / `OC |` title or live composer footer |
+| Claude Code | spinner title, interrupt hint, timed activity or background-agent wait | live permission/confirmation/elicitation form | `Claude Code` title/banner or prompt with permission-mode footer |
+
+Keep Hermes' status bar enabled. Visual state is refreshed by the two-second
+fallback poll because tmux has no pane-output hook. Claude/OpenCode local hooks
+and plugin events still refresh immediately.
 
 ## Binary commands
 

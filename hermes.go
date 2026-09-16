@@ -7,34 +7,6 @@ type hermesScreenState struct {
 	Status Status
 }
 
-type paneCapture func(string) (string, error)
-
-func capturePaneScreen(paneID string) (string, error) {
-	return tmux("capture-pane", "-p", "-t", paneID)
-}
-
-func collectHermesAgents(panes []Pane, capture paneCapture) []Agent {
-	var agents []Agent
-	for _, pane := range panes {
-		if pane.Sidebar || pane.Command != "ssh" {
-			continue
-		}
-		screen, err := capture(pane.ID)
-		if err != nil {
-			continue
-		}
-		state, ok := detectHermesScreen(screen)
-		if !ok {
-			continue
-		}
-		agents = append(agents, Agent{
-			Kind: "hermes", Name: state.Name, Status: state.Status,
-			Pane: pane, Key: "hermes:" + pane.ID,
-		})
-	}
-	return agents
-}
-
 // detectHermesScreen recognizes the live Hermes composer. The status bar sits
 // directly above the composer's top rule; scrollback mentioning Hermes alone
 // is therefore not enough to create an agent.

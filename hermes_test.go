@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -42,33 +41,5 @@ func TestDetectHermesScreen(t *testing.T) {
 					got, ok, tt.wantName, tt.wantStatus, tt.wantOK)
 			}
 		})
-	}
-}
-
-func TestCollectHermesAgentsOnlyCapturesSSHPanes(t *testing.T) {
-	panes := []Pane{
-		{ID: "%ssh", PID: 10, Command: "ssh"},
-		{ID: "%shell", PID: 20, Command: "zsh"},
-		{ID: "%failed", PID: 30, Command: "ssh"},
-	}
-	captured := map[string]int{}
-	capture := func(paneID string) (string, error) {
-		captured[paneID]++
-		if paneID == "%failed" {
-			return "", errors.New("pane disappeared")
-		}
-		return "⚕ model\n────────────\n❯ ask\n────────────", nil
-	}
-
-	got := collectHermesAgents(panes, capture)
-	if len(got) != 1 {
-		t.Fatalf("agents = %+v, want one", got)
-	}
-	if got[0].Kind != "hermes" || got[0].Name != "Hermes" || got[0].Status != Idle ||
-		got[0].Key != "hermes:%ssh" || got[0].Pane != panes[0] {
-		t.Fatalf("agent = %+v", got[0])
-	}
-	if captured["%ssh"] != 1 || captured["%failed"] != 1 || captured["%shell"] != 0 {
-		t.Fatalf("captures = %v", captured)
 	}
 }

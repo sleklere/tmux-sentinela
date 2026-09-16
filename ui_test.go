@@ -107,10 +107,10 @@ func TestViewingAgentClearsDoneInEverySidebar(t *testing.T) {
 	}
 }
 
-func TestHermesStatusTimesFollowScreenTransitions(t *testing.T) {
+func TestScreenStatusTimesFollowVisualTransitions(t *testing.T) {
 	isolateState(t)
 	m := testModel()
-	agent := Agent{Key: "hermes:%1", Kind: "hermes", Status: Idle}
+	agent := Agent{Key: "claude-screen:%1", Kind: "claude", Status: Idle, Visual: true}
 	m.applyPoll(pollMsg{agents: []Agent{agent}})
 	if got := m.agents[0].Since; !got.Equal(m.started) {
 		t.Fatalf("initial since = %v, want sidebar start %v", got, m.started)
@@ -124,6 +124,12 @@ func TestHermesStatusTimesFollowScreenTransitions(t *testing.T) {
 	m.applyPoll(pollMsg{agents: []Agent{agent}})
 	if got := m.agents[0].Since; !got.After(first) {
 		t.Fatalf("transition since = %v, want after %v", got, first)
+	}
+
+	native := Agent{Key: "claude:100", Kind: "claude", Status: Idle}
+	m.applyPoll(pollMsg{agents: []Agent{native}})
+	if got := m.agents[0].Since; !got.IsZero() {
+		t.Fatalf("native agent received a visual timestamp: %v", got)
 	}
 }
 

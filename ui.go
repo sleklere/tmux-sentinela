@@ -225,7 +225,7 @@ func (m *model) applyPoll(msg pollMsg) {
 		cursorKey = m.agents[m.cursor].Key
 	}
 	now := time.Now()
-	trackHermesStatusTimes(msg.agents, m.agents, m.started, now)
+	trackScreenStatusTimes(msg.agents, m.agents, m.started, now)
 	m.agents = msg.agents
 	m.selectKey(cursorKey)
 	m.window, m.active = msg.window, msg.active
@@ -261,14 +261,14 @@ func (m *model) applyPoll(msg pollMsg) {
 	}
 }
 
-func trackHermesStatusTimes(agents, previous []Agent, started, now time.Time) {
+func trackScreenStatusTimes(agents, previous []Agent, started, now time.Time) {
 	byKey := make(map[string]Agent, len(previous))
 	for _, agent := range previous {
 		byKey[agent.Key] = agent
 	}
 	for i := range agents {
 		agent := &agents[i]
-		if agent.Kind != "hermes" || !agent.Since.IsZero() {
+		if !agent.Visual || !agent.Since.IsZero() {
 			continue
 		}
 		agent.Since = started

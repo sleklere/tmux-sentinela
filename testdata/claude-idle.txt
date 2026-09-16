@@ -1,0 +1,9 @@
+ ▐▛███▛█   Claude Code v2.1.273
+▝▜██████▀  Opus 5 with high effort · Claude Pro
+  ▝▝ ▝▝    ~/workspace/project
+
+────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────
+  user@host ~/workspace/project (main) Opus 5                  ● high · /effort
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

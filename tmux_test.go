@@ -54,14 +54,15 @@ func waitForWindowName(t *testing.T, run func(...string) string, want string) {
 	}
 }
 
-func TestListPanesIncludesCurrentCommand(t *testing.T) {
-	isolatedTmux(t)
+func TestListPanesIncludesScreenMetadata(t *testing.T) {
+	run := isolatedTmux(t)
+	run("select-pane", "-t", "%0", "-T", "agent title")
 	panes, err := listPanes()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(panes) != 1 || panes[0].Command == "" {
-		t.Fatalf("panes = %+v, want one pane with its current command", panes)
+	if len(panes) != 1 || panes[0].Command == "" || panes[0].Title != "agent title" {
+		t.Fatalf("panes = %+v, want one pane with its current command and title", panes)
 	}
 }
 

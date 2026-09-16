@@ -1,0 +1,12 @@
+     + Thought: Inspecting the current implementation · 3.1s
+
+     ⠋ Read state.go
+     ⠋ Read ui.go
+     ~ Reading file…
+
+     ▣  Build · test-model
+
+  ┃
+  ┃  Build auto · test-model · high
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                18K (5%)  ctrl+p commands

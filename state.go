@@ -30,6 +30,7 @@ type Agent struct {
 	PID    int
 	Pane   Pane
 	Key    string // stable identity across polls
+	Visual bool   // state came from the pane's rendered screen
 }
 
 // stateDir holds markers written by hooks and the OpenCode plugin.
@@ -279,6 +280,7 @@ func collectPanes(panes []Pane) []Agent {
 	}
 	parents := parentMap()
 	var agents []Agent
+	claimed := map[string]bool{}
 
 	for _, s := range readClaudeSessions() {
 		key := "claude:" + strconv.Itoa(s.PID)
@@ -306,6 +308,7 @@ func collectPanes(panes []Pane) []Agent {
 			a.Name = filepath.Base(s.CWD)
 		}
 		agents = append(agents, a)
+		claimed[pane.ID] = true
 	}
 
 	for _, s := range readOpencodeStates() {
@@ -329,8 +332,9 @@ func collectPanes(panes []Pane) []Agent {
 			a.Name = filepath.Base(s.CWD)
 		}
 		agents = append(agents, a)
+		claimed[pane.ID] = true
 	}
-	agents = append(agents, collectHermesAgents(panes, capturePaneScreen)...)
+	agents = append(agents, collectScreenAgents(panes, claimed, capturePaneScreen)...)
 
 	sort.SliceStable(agents, func(i, j int) bool {
 		return order[agents[i].Pane.ID] < order[agents[j].Pane.ID]
