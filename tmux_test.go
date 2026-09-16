@@ -64,7 +64,7 @@ func loadPlugin(t *testing.T) {
 	}
 }
 
-func TestSidebarStaysOutOfNormalFocus(t *testing.T) {
+func TestSidebarFocusIsRestoredAfterWindowSwitch(t *testing.T) {
 	run := isolatedTmux(t)
 	run("set-option", "-g", "@sentinela_autocreate", "off")
 	run("new-window", "-d", "-t", "test:", "-n", "other", "sleep 300")
@@ -73,20 +73,17 @@ func TestSidebarStaysOutOfNormalFocus(t *testing.T) {
 	sidebar := run("split-window", "-hd", "-t", "@0", "-P", "-F", "#{pane_id}", "sleep 300")
 	run("set-option", "-p", "-t", sidebar, "@sentinela_sidebar", "1")
 
-	// Recreate a window whose sidebar was focused before switching away.
-	run("set-hook", "-gu", "after-select-pane[40]")
+	// Pane navigation can still focus the sidebar for keyboard interaction.
 	run("select-pane", "-t", sidebar)
-	loadPlugin(t)
+	if got := run("display-message", "-p", "-t", "@0", "#{pane_id}"); got != sidebar {
+		t.Fatalf("pane after selecting sidebar = %q, want %s", got, sidebar)
+	}
+
+	// Returning to that window restores focus to its last work pane.
 	run("select-window", "-t", "@1")
 	run("select-window", "-t", "@0")
 	if got := run("display-message", "-p", "-t", "@0", "#{pane_id}"); got != "%0" {
 		t.Fatalf("pane after returning to window = %q, want work pane %%0", got)
-	}
-
-	// Pane navigation may cross the sidebar, but must not leave focus there.
-	run("select-pane", "-t", sidebar)
-	if got := run("display-message", "-p", "-t", "@0", "#{pane_id}"); got != "%0" {
-		t.Fatalf("pane after selecting sidebar = %q, want work pane %%0", got)
 	}
 }
 

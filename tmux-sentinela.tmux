@@ -26,10 +26,10 @@ fi
 key=$(tmux show-option -gqv @sentinela_key); key=${key:-a}
 tmux bind-key "$key" run-shell "'$BIN' toggle '#{window_id}'"
 
-# Keep the sidebar out of normal pane/window navigation. A direct click may
-# still focus it so its keyboard controls remain usable.
+# Keep window/session changes from restoring focus to a sidebar. Direct pane
+# navigation and clicks may still focus it so its keyboard controls work.
 focus_guard="if-shell -F '#{&&:#{@sentinela_sidebar},#{||:#{==:#{mouse_any_flag},0},#{!=:#{mouse_pane},#{pane_id}}}}' 'select-pane -l'"
-tmux set-hook -g 'after-select-pane[40]' "$focus_guard"
+tmux set-hook -gu 'after-select-pane[40]'
 tmux set-hook -g 'after-select-window[40]' "$focus_guard"
 tmux set-hook -g 'client-session-changed[40]' "$focus_guard"
 
