@@ -77,6 +77,10 @@ keeps detection working when Claude runs with a custom `CLAUDE_CONFIG_DIR`.
 | `Enter`, `l`, click | jump to the agent's pane |
 | `q` | close the sidebar |
 
+Normal pane, window, and session navigation leaves focus on work panes instead
+of the sidebar. Click the sidebar directly when you want to use its keyboard
+controls; otherwise it behaves like an external panel.
+
 The cursor follows focus: switching to a window with an agent (by any tmux
 means) moves the bar to it. Every sidebar marks the same agent, so jumping
 never lands on a window whose bar sits somewhere else.
