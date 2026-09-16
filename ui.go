@@ -66,6 +66,8 @@ type model struct {
 	self              string // own pane id, "" outside tmux
 	th                theme
 	notify            string // @sentinela_notify
+	notifyDone        string // @sentinela_notify_done
+	sound             string // @sentinela_sound
 	agents            []Agent
 	cursor            int
 	width             int
@@ -92,6 +94,7 @@ func newModel(bin string) model {
 	o := globalOptions()
 	now := time.Now()
 	return model{bin: bin, self: selfPane(), th: loadTheme(o), notify: o["@sentinela_notify"],
+		notifyDone: o["@sentinela_notify_done"], sound: o["@sentinela_sound"],
 		seen: map[string]time.Time{}, started: now, requestedSequence: 1, polling: true,
 		lastPollRequested: now}
 }
@@ -136,6 +139,7 @@ func (m *model) beginPoll() tea.Cmd {
 		paintSidebar(m.self, string(th.background))
 	}
 	m.th, m.notify = th, o["@sentinela_notify"]
+	m.notifyDone, m.sound = o["@sentinela_notify_done"], o["@sentinela_sound"]
 	return m.pollCommand(m.requestedSequence)
 }
 
@@ -252,6 +256,12 @@ func (m *model) applyPoll(msg pollMsg) {
 			msg.leader && m.notify != "off" {
 			go notify(a, m.notify)
 		}
+		if shouldPlayCompletionSound(was, known, a, msg.leader, m.sound) {
+			go playCompletionSound()
+		}
+		if shouldNotifyCompletion(was, known, a, msg.leader, m.notifyDone) {
+			go notifyCompletion(a, m.notifyDone)
+		}
 		prev[a.Key] = a.Status
 	}
 	m.prev = prev
@@ -259,6 +269,19 @@ func (m *model) applyPoll(msg pollMsg) {
 	if m.cursor >= len(m.agents) {
 		m.cursor = max(0, len(m.agents)-1)
 	}
+}
+
+func shouldPlayCompletionSound(previous Status, known bool, a Agent, leader bool, mode string) bool {
+	return mode == "on" && leader && completed(previous, known, a)
+}
+
+func shouldNotifyCompletion(previous Status, known bool, a Agent, leader bool, mode string) bool {
+	enabled := mode == "tmux" || mode == "desktop" || mode == "both"
+	return enabled && leader && !a.Pane.Visible && completed(previous, known, a)
+}
+
+func completed(previous Status, known bool, a Agent) bool {
+	return known && previous != Idle && a.Status == Idle
 }
 
 func trackScreenStatusTimes(agents, previous []Agent, started, now time.Time) {

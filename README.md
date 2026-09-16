@@ -91,6 +91,9 @@ not replace the shared width; small windows use as much of it as fits.
 
 When an agent turns blocked in a pane you are not looking at, a message shows
 on every attached client (see `@sentinela_notify` for desktop notifications).
+Optionally, Sentinela can play an embedded completion sound when an agent
+finishes and send a system notification when that agent is in a background
+pane (see `@sentinela_sound` and `@sentinela_notify_done`).
 
 The sidebar opens by itself in every new window and closes by itself when it
 is the only pane left, so closing the last real pane closes the window as it
@@ -103,7 +106,9 @@ would without the plugin.
 | `@sentinela_key` | `a` | toggle key |
 | `@sentinela_width` | `32` | width in columns |
 | `@sentinela_autocreate` | `on` | open in new windows |
-| `@sentinela_notify` | `tmux` | on blocked: `tmux` (display-message), `desktop` (notify-send / osascript), `both`, `off` |
+| `@sentinela_notify` | `tmux` | on blocked: `tmux` (display-message), `desktop` (system notification), `both`, `off` |
+| `@sentinela_notify_done` | `off` | on background completion: `tmux`, `desktop`, `both`, `off` |
+| `@sentinela_sound` | `off` | on completion: `on` (embedded sound), `off` |
 | `@sentinela_bg` | `@th_base` | opaque background of the sidebar pane |
 | `@sentinela_color_text` | `@th_text` | agent names |
 | `@sentinela_color_muted` | `@th_muted` | details, idle glyph |
@@ -119,6 +124,11 @@ applies live to open sidebars: colors are re-read on events and at least every
 two seconds, and the pane background is repainted only when its resolved color
 changes. Without
 `@sentinela_bg` or `@th_base`, the sidebar inherits the window's styles.
+
+Desktop notifications use `notify-send` on Linux and `terminal-notifier` with
+an `osascript` fallback on macOS. The embedded WAV uses `paplay`, `pw-play`,
+`aplay`, `ffplay` or `mpv` on Linux and `afplay` on macOS. Missing optional
+helpers fail silently.
 
 With tmux-resurrect, to restore the sidebar as a process instead of an empty
 shell: `set -g @resurrect-processes '"~tmux-sentinela sidebar"'`.

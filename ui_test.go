@@ -133,6 +133,63 @@ func TestScreenStatusTimesFollowVisualTransitions(t *testing.T) {
 	}
 }
 
+func TestCompletionSoundTransitions(t *testing.T) {
+	agent := Agent{Status: Idle}
+	for _, tt := range []struct {
+		name     string
+		previous Status
+		known    bool
+		leader   bool
+		mode     string
+		visible  bool
+		want     bool
+	}{
+		{"busy finishes", Busy, true, true, "on", false, true},
+		{"blocked finishes", Blocked, true, true, "on", false, true},
+		{"first observation", Busy, false, true, "on", false, false},
+		{"already idle", Idle, true, true, "on", false, false},
+		{"visible pane", Busy, true, true, "on", true, true},
+		{"follower sidebar", Busy, true, false, "on", false, false},
+		{"disabled", Busy, true, true, "off", false, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			agent.Pane.Visible = tt.visible
+			if got := shouldPlayCompletionSound(tt.previous, tt.known, agent, tt.leader, tt.mode); got != tt.want {
+				t.Fatalf("shouldPlayCompletionSound() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCompletionNotificationTransitions(t *testing.T) {
+	agent := Agent{Status: Idle}
+	for _, tt := range []struct {
+		name     string
+		previous Status
+		known    bool
+		leader   bool
+		mode     string
+		visible  bool
+		want     bool
+	}{
+		{"background completion", Busy, true, true, "desktop", false, true},
+		{"blocked completion", Blocked, true, true, "tmux", false, true},
+		{"both mode", Busy, true, true, "both", false, true},
+		{"active pane", Busy, true, true, "desktop", true, false},
+		{"first observation", Busy, false, true, "desktop", false, false},
+		{"follower sidebar", Busy, true, false, "desktop", false, false},
+		{"disabled", Busy, true, true, "off", false, false},
+		{"default disabled", Busy, true, true, "", false, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			agent.Pane.Visible = tt.visible
+			if got := shouldNotifyCompletion(tt.previous, tt.known, agent, tt.leader, tt.mode); got != tt.want {
+				t.Fatalf("shouldNotifyCompletion() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCursorVisibility(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
