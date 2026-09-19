@@ -12,10 +12,11 @@ func fakeNotifier(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	log := filepath.Join(dir, "notifications.log")
-	script := filepath.Join(dir, "notify-send")
 	body := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SENTINELA_NOTIFY_LOG\"\n"
-	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"notify-send", "terminal-notifier"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Setenv("SENTINELA_NOTIFY_LOG", log)
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
