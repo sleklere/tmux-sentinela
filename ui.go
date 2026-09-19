@@ -249,12 +249,25 @@ func (m *model) applyPoll(msg pollMsg) {
 		} else if !known {
 			m.seen[a.Key] = m.started // unknown history: not "done"
 		}
+
+		// Determine the previous status for transition detection.
+		// Priority: local m.prev (same sidebar, same run) > shared status (persisted across runs/polls).
+		was, known := m.prev[a.Key]
+		if !known {
+			if sharedStatus, ok := readStatus(a.Key); ok {
+				was, known = sharedStatus, true
+			}
+		}
+
 		// Announce the transition into blocked, once, and not for the pane
 		// the user is already looking at.
-		was, known := m.prev[a.Key]
 		if known && was != Blocked && a.Status == Blocked && !a.Pane.Visible &&
 			msg.leader && m.notify != "off" {
-			go notify(a, m.notify)
+			// F9: deduplicate notifications globally using shared state.
+			if !notifiedRecently(a.Key, "blocked") {
+				go notify(a, m.notify)
+				writeNotified(a.Key, "blocked")
+			}
 		}
 		if shouldPlayCompletionSound(was, known, a, msg.leader, m.sound) {
 			go playCompletionSound()
@@ -263,6 +276,8 @@ func (m *model) applyPoll(msg pollMsg) {
 			go notifyCompletion(a, m.notifyDone)
 		}
 		prev[a.Key] = a.Status
+		// F7: persist current status so a transient loss doesn't forget the last known state.
+		writeStatus(a.Key, a.Status)
 	}
 	m.prev = prev
 	m.syncCursor(msg.sel)
