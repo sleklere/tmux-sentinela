@@ -13,6 +13,7 @@ func isolateState(t *testing.T) {
 	t.Setenv("HOME", root)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(root, ".claude"))
+	t.Setenv("TMUX", "")
 }
 
 func writeTestFile(t *testing.T, path string, data []byte) {

@@ -174,6 +174,7 @@ type opencodeState struct {
 	Updated  int64  `json:"updated"`
 	Revision uint64 `json:"revision"`
 	CWD      string `json:"cwd"`
+	Server   string `json:"server"`
 }
 
 func readOpencodeStates() []opencodeState {
@@ -196,6 +197,11 @@ func readOpencodeStates() []opencodeState {
 		out = append(out, s)
 	}
 	return out
+}
+
+// currentServerID returns a short, stable identifier for the current tmux server.
+func currentServerID() string {
+	return serverIdentity()
 }
 
 // --- process tree (portable: signal 0 and ps work on Linux and macOS)
@@ -281,6 +287,7 @@ func collectPanes(panes []Pane) []Agent {
 	parents := parentMap()
 	var agents []Agent
 	claimed := map[string]bool{}
+	serverID := currentServerID()
 
 	for _, s := range readClaudeSessions() {
 		key := "claude:" + strconv.Itoa(s.PID)
@@ -312,7 +319,7 @@ func collectPanes(panes []Pane) []Agent {
 	}
 
 	for _, s := range readOpencodeStates() {
-		key := "opencode:" + strconv.Itoa(s.PID)
+		key := "opencode:" + serverID + ":" + strconv.Itoa(s.PID)
 		pane, ok := byID[s.Pane]
 		if !ok { // TMUX_PANE not inherited: walk the process tree instead
 			if pane, ok = paneOf(s.PID, parents, byPID); !ok {
@@ -334,10 +341,82 @@ func collectPanes(panes []Pane) []Agent {
 		agents = append(agents, a)
 		claimed[pane.ID] = true
 	}
-	agents = append(agents, collectScreenAgents(panes, claimed, capturePaneScreen)...)
+	agents = append(agents, collectScreenAgents(panes, claimed, capturePaneScreen, serverID)...)
 
 	sort.SliceStable(agents, func(i, j int) bool {
 		return order[agents[i].Pane.ID] < order[agents[j].Pane.ID]
 	})
 	return agents
+}
+
+// --- Status persistence for F7: keep last known status across transient agent loss
+
+func statusFile(key string) string {
+	return filepath.Join(stateDir(), "status", key+".status")
+}
+
+func readStatus(key string) (Status, bool) {
+	b, err := os.ReadFile(statusFile(key))
+	if err != nil {
+		return Idle, false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return Idle, false
+	}
+	return Status(n), true
+}
+
+func writeStatus(key string, status Status) {
+	dir := filepath.Join(stateDir(), "status")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	atomicWriteFile(statusFile(key), []byte(strconv.Itoa(int(status))), 0o600)
+}
+
+func removeStatus(key string) {
+	os.Remove(statusFile(key))
+}
+
+// --- Notification deduplication for F9: global dedup across sidebars/leader changes
+
+var notifiedTTL = 30 * time.Second // expiration for a notified transition
+
+func notifiedFile(key, transition string) string {
+	server := currentServerID()
+	return filepath.Join(stateDir(), "notified", server, key+":"+transition)
+}
+
+func readNotified(key, transition string) (time.Time, bool) {
+	b, err := os.ReadFile(notifiedFile(key, transition))
+	if err != nil {
+		return time.Time{}, false
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return time.Unix(0, n), true
+}
+
+func writeNotified(key, transition string) {
+	dir := filepath.Join(stateDir(), "notified", currentServerID())
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	atomicWriteFile(notifiedFile(key, transition), []byte(strconv.FormatInt(time.Now().UnixNano(), 10)), 0o600)
+}
+
+func notifiedRecently(key, transition string) bool {
+	at, ok := readNotified(key, transition)
+	if !ok {
+		return false
+	}
+	return time.Since(at) < notifiedTTL
+}
+
+// clearNotified removes the notification record for a key+transition (for testing).
+func clearNotified(key, transition string) {
+	os.Remove(notifiedFile(key, transition))
 }
