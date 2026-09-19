@@ -13,15 +13,16 @@ test("tracks OpenCode sessions and both permission event versions", async () => 
   const file = join(cache, "tmux-sentinela", "opencode", `${process.pid}.json`);
   const state = async () => JSON.parse(await readFile(file, "utf8"));
   const event = async (type, properties) => hooks.event({ event: { type, properties } });
-
-  assert.deepEqual(await state(), {
+  const initial = await state();
+  assert.deepEqual(initial, {
     pid: process.pid,
     pane: "%42",
     name: "",
     status: "idle",
-    updated: (await state()).updated,
+    updated: initial.updated,
     revision: 1,
     cwd: "/work/project",
+    server: initial.server,
   });
 
   await event("session.created", { info: { id: "session-1", title: "Fix rows" } });

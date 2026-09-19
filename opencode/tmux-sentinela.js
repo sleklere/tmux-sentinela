@@ -5,10 +5,20 @@
 import { mkdir, rename, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { createHash } from "node:crypto";
 
 const stateDir = join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "tmux-sentinela");
 const dir = join(stateDir, "opencode");
 const file = join(dir, `${process.pid}.json`);
+
+function serverIdentity() {
+  const tmuxEnv = process.env.TMUX || "";
+  const socket = tmuxEnv.split(",")[0] || "";
+  if (!socket) return "unknown";
+  return createHash("sha256").update(socket).digest("hex").slice(0, 8);
+}
+
+const serverID = serverIdentity();
 
 export const TmuxSentinela = async ({ directory }) => {
   const roots = new Map(); // root sessionID -> { title, status }
@@ -25,7 +35,7 @@ export const TmuxSentinela = async ({ directory }) => {
     const status = pending.size ? "blocked" : sessions.some((s) => s.status === "busy") ? "busy" : "idle";
     const name = sessions.at(-1)?.title || "";
     const revision = ++sequence;
-    const state = { pid: process.pid, pane: process.env.TMUX_PANE || "", name, status, updated: Date.now(), revision, cwd: directory };
+    const state = { pid: process.pid, pane: process.env.TMUX_PANE || "", name, status, updated: Date.now(), revision, cwd: directory, server: serverID };
     const data = JSON.stringify(state);
     const temp = `${file}.${revision}.tmp`;
     writes = writes
