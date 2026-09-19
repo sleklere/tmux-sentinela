@@ -60,6 +60,7 @@ func TestDetectClaudeScreen(t *testing.T) {
 		{"ssh shell mentions Claude", "user@host: ~", "$ printf 'Claude Code'\nClaude Code\n$", Idle, false},
 		{"generic prompt", "user@host: ~", "────────────────\n❯\n────────────────", Idle, false},
 		{"stale permission in shell", "user@host: ~", "Bash command\nDo you want to proceed?\n❯ 1. Yes\nEsc to cancel\n" + strings.Repeat("old output\n", 12) + "$", Idle, false},
+		{"stale idle frame with shell prompt", "user@remote: ~", idle + "\nuser@remote:~/workspace/project$ ", Idle, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -98,11 +99,11 @@ func TestCollectScreenAgentsCapturesEachUnclaimedPaneOnce(t *testing.T) {
 		return screens[paneID], nil
 	}
 
-	got := collectScreenAgents(panes, map[string]bool{"%native": true}, capture)
+	got := collectScreenAgents(panes, map[string]bool{"%native": true}, capture, "test-server")
 	want := []Agent{
-		{Kind: "hermes", Name: "Hermes", Pane: panes[0], Key: "hermes:%hermes", Visual: true},
-		{Kind: "opencode", Name: "OpenCode", Pane: panes[1], Key: "opencode-screen:%open", Visual: true},
-		{Kind: "claude", Name: "Claude Code", Pane: panes[2], Key: "claude-screen:%claude", Visual: true},
+		{Kind: "hermes", Name: "Hermes", Pane: panes[0], Key: "hermes:test-server:%hermes", Visual: true},
+		{Kind: "opencode", Name: "OpenCode", Pane: panes[1], Key: "opencode-screen:test-server:%open", Visual: true},
+		{Kind: "claude", Name: "Claude Code", Pane: panes[2], Key: "claude-screen:test-server:%claude", Visual: true},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("agents = %+v, want %+v", got, want)

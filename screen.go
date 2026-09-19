@@ -29,7 +29,7 @@ func capturePaneScreen(paneID string) (string, error) {
 // composer signature and may run locally or over SSH; Claude and OpenCode are
 // only inferred visually for SSH panes, where their authoritative local state
 // files are unavailable.
-func collectScreenAgents(panes []Pane, claimed map[string]bool, capture paneCapture) []Agent {
+func collectScreenAgents(panes []Pane, claimed map[string]bool, capture paneCapture, serverID string) []Agent {
 	var agents []Agent
 	for _, pane := range panes {
 		if pane.Sidebar || claimed[pane.ID] {
@@ -43,9 +43,9 @@ func collectScreenAgents(panes []Pane, claimed map[string]bool, capture paneCapt
 		if !ok {
 			continue
 		}
-		key := state.Kind + "-screen:" + pane.ID
+		key := state.Kind + "-screen:" + serverID + ":" + pane.ID
 		if state.Kind == "hermes" { // keep existing selections and seen state stable
-			key = "hermes:" + pane.ID
+			key = "hermes:" + serverID + ":" + pane.ID
 		}
 		agents = append(agents, Agent{
 			Kind: state.Kind, Name: state.Name, Status: state.Status,
@@ -102,16 +102,39 @@ func detectOpenCodeScreen(title, screen string) (screenAgentState, bool) {
 
 func detectClaudeScreen(title, screen string) (screenAgentState, bool) {
 	lowerTitle := strings.ToLower(strings.TrimSpace(title))
-	lower := strings.ToLower(screen)
 	bottom := bottomNonEmptyLines(screen, 12)
 	lowerBottom := strings.ToLower(bottom)
 	blocked := claudeBlockedScreen(lowerBottom, bottom)
 	busy := claudeBusyScreen(title, lowerBottom, bottom)
+
+	// F6: Anchor presence to live bottom structure.
+	// Check bottom 12 for blocked/busy, but for idle require live indicators
+	// in the last few lines (footer or title). A bare prompt is not enough.
+	lastFew := bottomNonEmptyLines(screen, 3)
+	lowerLastFew := strings.ToLower(lastFew)
+	hasLiveFooter := strings.Contains(lowerLastFew, "shift+tab to cycle") ||
+		strings.Contains(lowerLastFew, "auto mode")
+
+	// If the very last non-empty line is a shell prompt, it's not a live Claude frame.
+	lines := strings.Split(strings.ReplaceAll(screen, "\r", ""), "\n")
+	var lastNonEmpty string
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(lines[i]) != "" {
+			lastNonEmpty = strings.TrimSpace(lines[i])
+			break
+		}
+	}
+	looksLikeShellPrompt := strings.HasSuffix(lastNonEmpty, "$") ||
+		strings.HasSuffix(lastNonEmpty, "#") ||
+		strings.HasSuffix(lastNonEmpty, ">") ||
+		strings.HasSuffix(lastNonEmpty, "%")
+
 	present := strings.Contains(lowerTitle, "claude code") ||
-		strings.Contains(lower, "claude code v") ||
-		strings.Contains(lower, "shift+tab to cycle") || blocked ||
-		(claudeTitleWorking(title) && busy)
-	if !present {
+		strings.Contains(lowerBottom, "claude code v") ||
+		blocked || busy ||
+		(claudeTitleWorking(title) && busy) ||
+		hasLiveFooter
+	if !present || looksLikeShellPrompt {
 		return screenAgentState{}, false
 	}
 
@@ -120,7 +143,8 @@ func detectClaudeScreen(title, screen string) (screenAgentState, bool) {
 		status = Blocked
 	} else if busy {
 		status = Busy
-	} else if !hasClaudePrompt(screen) && !strings.Contains(lowerTitle, "claude code") {
+	} else if !hasLiveFooter && !strings.Contains(lowerTitle, "claude code") {
+		// Idle requires a live footer or a Claude title. A bare prompt is not enough.
 		return screenAgentState{}, false
 	}
 	return screenAgentState{Kind: "claude", Name: "Claude Code", Status: status}, true
