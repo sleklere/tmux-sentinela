@@ -242,3 +242,177 @@ func TestSidebarPreservesExistingManualName(t *testing.T) {
 		t.Fatalf("existing manual name/automatic-rename changed: %q", got)
 	}
 }
+
+func TestToggleOffStaysClosedAfterNewWindow(t *testing.T) {
+	run := isolatedTmux(t)
+	run("set-option", "-g", "@sentinela_notify", "off")
+	run("set-option", "-g", "@sentinela_notify_done", "off")
+	run("set-option", "-g", "@sentinela_sound", "off")
+	loadPlugin(t)
+
+	// Create a second work pane so the window survives sidebar closing.
+	run("split-window", "-d", "-t", "@0", "sleep 300")
+
+	// Verify sidebar exists after load.
+	sidebars := run("list-panes", "-t", "@0", "-F", "#{@sentinela_sidebar}")
+	if strings.Count(sidebars, "1") != 1 {
+		t.Fatalf("expected 1 sidebar after load, got: %s", sidebars)
+	}
+
+	// User deliberately closes the sidebar (toggle off).
+	bin := "./bin/tmux-sentinela"
+	cmd := exec.Command(bin, "toggle", "@0")
+	cmd.Env = append(os.Environ(), "TMUX="+run("display-message", "-p", "#{socket_path}")+",0,0")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("toggle failed: %v: %s", err, out)
+	}
+
+	// Verify sidebar is closed.
+	sidebars = run("list-panes", "-t", "@0", "-F", "#{@sentinela_sidebar}")
+	if strings.Count(sidebars, "1") != 0 {
+		t.Fatalf("expected 0 sidebars after toggle off, got: %s", sidebars)
+	}
+
+	// Zoom the work pane.
+	run("select-pane", "-t", "%0")
+	run("resize-pane", "-Z", "-t", "%0")
+	zoomed := run("display-message", "-p", "-t", "@0", "#{window_zoomed_flag}")
+	if zoomed != "1" {
+		t.Fatalf("expected window to be zoomed, got %q", zoomed)
+	}
+
+	// Create a new window - this triggers after-new-window hook -> ensure.
+	run("new-window", "-d", "-t", "test:", "-n", "other", "sleep 300")
+
+	// Give ensure time to run.
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify the original window's sidebar stayed closed.
+	sidebars = run("list-panes", "-t", "@0", "-F", "#{@sentinela_sidebar}")
+	if strings.Count(sidebars, "1") != 0 {
+		t.Fatalf("expected 0 sidebars in @0 after new-window, got: %s", sidebars)
+	}
+
+	// Verify the original window stayed zoomed.
+	zoomed = run("display-message", "-p", "-t", "@0", "#{window_zoomed_flag}")
+	if zoomed != "1" {
+		t.Fatalf("expected window @0 to stay zoomed, got %q", zoomed)
+	}
+
+	// Verify the new window got a sidebar (autocreate is on by default).
+	sidebars = run("list-panes", "-t", "@1", "-F", "#{@sentinela_sidebar}")
+	if strings.Count(sidebars, "1") != 1 {
+		t.Fatalf("expected 1 sidebar in new window @1, got: %s", sidebars)
+	}
+}
+
+func TestAutocreateOffPreventsSidebarInNewWindows(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		autocreate    string
+		expectSidebar bool
+	}{
+		{"off", "off", false},
+		{"on", "on", true},
+		{"absent", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			run := isolatedTmux(t)
+			run("set-option", "-g", "@sentinela_notify", "off")
+			run("set-option", "-g", "@sentinela_notify_done", "off")
+			run("set-option", "-g", "@sentinela_sound", "off")
+			if tc.autocreate != "" {
+				run("set-option", "-g", "@sentinela_autocreate", tc.autocreate)
+			}
+			loadPlugin(t)
+
+			// Check what panes exist after loadPlugin
+			allPanes := run("list-panes", "-a", "-F", "#{window_id} #{pane_id} #{@sentinela_sidebar}")
+			t.Logf("all panes after loadPlugin: %s", allPanes)
+
+			// Create a new window - this triggers after-new-window hook -> ensure.
+			run("new-window", "-d", "-t", "test:", "-n", "work", "sleep 300")
+
+			// Give ensure time to run.
+			time.Sleep(1000 * time.Millisecond)
+
+			// Check what panes exist
+			allPanes = run("list-panes", "-a", "-F", "#{window_id} #{pane_id} #{@sentinela_sidebar}")
+			t.Logf("all panes after new-window: %s", allPanes)
+
+			sidebars := run("list-panes", "-t", "@1", "-F", "#{@sentinela_sidebar}")
+			count := strings.Count(sidebars, "1")
+			if tc.expectSidebar && count != 1 {
+				t.Fatalf("expected sidebar in new window, got %d", count)
+			}
+			if !tc.expectSidebar && count != 0 {
+				t.Fatalf("expected no sidebar in new window, got %d", count)
+			}
+		})
+	}
+}
+
+func TestManualToggleWorksWithAutocreateOff(t *testing.T) {
+	run := isolatedTmux(t)
+	run("set-option", "-g", "@sentinela_autocreate", "off")
+	run("set-option", "-g", "@sentinela_notify", "off")
+	run("set-option", "-g", "@sentinela_notify_done", "off")
+	run("set-option", "-g", "@sentinela_sound", "off")
+	loadPlugin(t)
+
+	// Initial window should have no sidebar (autocreate off).
+	sidebars := run("list-panes", "-t", "@0", "-F", "#{@sentinela_sidebar}")
+	if strings.Count(sidebars, "1") != 0 {
+		t.Fatalf("expected 0 sidebars initially with autocreate off, got: %s", sidebars)
+	}
+
+	// Manual toggle should open a sidebar.
+	bin := "./bin/tmux-sentinela"
+	cmd := exec.Command(bin, "toggle", "@0")
+	cmd.Env = append(os.Environ(), "TMUX="+run("display-message", "-p", "#{socket_path}")+",0,0")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("toggle open failed: %v: %s", err, out)
+	}
+
+	sidebars = run("list-panes", "-t", "@0", "-F", "#{@sentinela_sidebar}")
+	if strings.Count(sidebars, "1") != 1 {
+		t.Fatalf("expected 1 sidebar after manual toggle open, got: %s", sidebars)
+	}
+
+	// Manual toggle should close it again.
+	cmd = exec.Command(bin, "toggle", "@0")
+	cmd.Env = append(os.Environ(), "TMUX="+run("display-message", "-p", "#{socket_path}")+",0,0")
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("toggle close failed: %v: %s", err, out)
+	}
+
+	sidebars = run("list-panes", "-t", "@0", "-F", "#{@sentinela_sidebar}")
+	if strings.Count(sidebars, "1") != 0 {
+		t.Fatalf("expected 0 sidebars after manual toggle close, got: %s", sidebars)
+	}
+
+	// Creating a new window should NOT open a sidebar (autocreate off).
+	run("new-window", "-d", "-t", "test:", "-n", "other", "sleep 300")
+	time.Sleep(500 * time.Millisecond)
+
+	sidebars = run("list-panes", "-t", "@1", "-F", "#{@sentinela_sidebar}")
+	if strings.Count(sidebars, "1") != 0 {
+		t.Fatalf("expected 0 sidebars in new window with autocreate off, got: %s", sidebars)
+	}
+
+	// But manual toggle should still work in the new window.
+	cmd = exec.Command(bin, "toggle", "@1")
+	cmd.Env = append(os.Environ(), "TMUX="+run("display-message", "-p", "#{socket_path}")+",0,0")
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("toggle open in new window failed: %v: %s", err, out)
+	}
+
+	sidebars = run("list-panes", "-t", "@1", "-F", "#{@sentinela_sidebar}")
+	if strings.Count(sidebars, "1") != 1 {
+		t.Fatalf("expected 1 sidebar after manual toggle in new window, got: %s", sidebars)
+	}
+}

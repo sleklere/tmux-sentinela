@@ -1,11 +1,14 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Pane is one tmux pane as reported by list-panes -a.
@@ -86,6 +89,42 @@ func globalOptions() map[string]string {
 	return opts
 }
 
+// autocreateEnabled returns whether @sentinela_autocreate is on (default: on).
+func autocreateEnabled() bool {
+	val := globalOptions()["@sentinela_autocreate"]
+	return val != "off"
+}
+
+// userClosedOption returns the window option name for the user-closed marker.
+const userClosedOption = "@sentinela_user_closed"
+
+// isUserClosed returns whether the user deliberately closed the sidebar in this window.
+func isUserClosed(windowID string) bool {
+	val, err := tmux("show-option", "-wqv", "-t", windowID, userClosedOption)
+	if err != nil {
+		return false
+	}
+	return val == "1"
+}
+
+// setUserClosed sets or clears the user-closed marker for a window.
+func setUserClosed(windowID string, closed bool) {
+	val := "0"
+	if closed {
+		val = "1"
+	}
+	tmux("set-option", "-w", "-t", windowID, userClosedOption, val)
+}
+
+// isWindowZoomed returns whether the given window is currently zoomed.
+func isWindowZoomed(windowID string) bool {
+	val, err := tmux("display-message", "-p", "-t", windowID, "#{window_zoomed_flag}")
+	if err != nil {
+		return false
+	}
+	return val == "1"
+}
+
 // jumpTo focuses a pane, switching session and window as needed.
 func jumpTo(paneID string) error {
 	for _, args := range [][]string{
@@ -100,9 +139,76 @@ func jumpTo(paneID string) error {
 	return nil
 }
 
+// ensureLockPath returns the path to the ensure lock file for the current tmux server.
+func ensureLockPath() string {
+	socket, _ := tmux("display-message", "-p", "#{socket_path}")
+	if socket == "" {
+		return ""
+	}
+	// Hash the socket path for a filesystem-safe name
+	sum := sha256.Sum256([]byte(socket))
+	return filepath.Join(os.TempDir(), fmt.Sprintf("tmux-sentinela-ensure-%x.lock", sum[:4]))
+}
+
+// ensureLock acquires a per-server lock for ensure operations.
+// Uses atomic directory creation as a mutex. Returns true if lock acquired.
+func ensureLock() bool {
+	path := ensureLockPath()
+	if path == "" {
+		return false
+	}
+	// mkdir is atomic on POSIX
+	err := os.Mkdir(path, 0o700)
+	return err == nil
+}
+
+// ensureUnlock releases the ensure lock.
+func ensureUnlock() {
+	path := ensureLockPath()
+	if path != "" {
+		os.Remove(path)
+	}
+}
+
+// waitForLock waits for the ensure lock to be released, with timeout.
+func waitForLock(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		path := ensureLockPath()
+		if path == "" {
+			return true
+		}
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return true
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return false
+}
+
 // ensureSidebars opens a sidebar in every window that lacks one.
 // Focus stays where it was.
+// Concurrent calls are serialized per tmux server.
+// Errors for individual windows are accumulated; the function returns
+// an error if any window failed, but continues processing all windows.
 func ensureSidebars(bin string) error {
+	if !autocreateEnabled() {
+		return nil
+	}
+
+	// Try to acquire lock; if busy, wait briefly for the other ensure to finish.
+	if !ensureLock() {
+		if !waitForLock(2 * time.Second) {
+			return fmt.Errorf("ensure: timeout waiting for concurrent ensure to finish")
+		}
+		// Lock is free now, but another ensure just finished.
+		// Re-check if sidebars are already present to avoid redundant work.
+		if !ensureLock() {
+			return fmt.Errorf("ensure: failed to acquire lock after wait")
+		}
+	}
+	defer ensureUnlock()
+
 	panes, err := listPanes()
 	if err != nil {
 		return err
@@ -111,21 +217,51 @@ func ensureSidebars(bin string) error {
 	if width == "" {
 		width = defaultWidth
 	}
+
+	// Build initial set of windows that already have a sidebar.
 	has := map[string]bool{}
 	for _, p := range panes {
 		if p.Sidebar {
 			has[p.WindowID] = true
 		}
 	}
+
+	var errs []string
 	seen := map[string]bool{}
 	for _, p := range panes {
 		if has[p.WindowID] || seen[p.WindowID] {
 			continue
 		}
-		seen[p.WindowID] = true
-		if err := openSidebar(bin, p.WindowID, width); err != nil {
-			return err
+		// Respect user's deliberate toggle off.
+		if isUserClosed(p.WindowID) {
+			seen[p.WindowID] = true
+			continue
 		}
+		// Don't unzoom a window the user left without a sidebar.
+		if isWindowZoomed(p.WindowID) {
+			seen[p.WindowID] = true
+			continue
+		}
+		seen[p.WindowID] = true
+
+		// Re-verify the window still lacks a sidebar (idempotent check)
+		// in case another process created one while we held the lock.
+		check, _ := tmux("list-panes", "-t", p.WindowID, "-F", "#{@sentinela_sidebar}")
+		if strings.Contains(check, "1") {
+			has[p.WindowID] = true
+			continue
+		}
+
+		if err := openSidebar(bin, p.WindowID, width); err != nil {
+			errs = append(errs, fmt.Sprintf("window %s: %v", p.WindowID, err))
+			// Continue with other windows
+		} else {
+			has[p.WindowID] = true
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("ensure: %d window(s) failed: %s", len(errs), strings.Join(errs, "; "))
 	}
 	return nil
 }
@@ -192,13 +328,20 @@ func toggleSidebar(bin, windowID string) error {
 	for _, p := range panes {
 		if p.WindowID == cur && p.Sidebar {
 			_, err := tmux("kill-pane", "-t", p.ID)
-			return err
+			if err != nil {
+				return err
+			}
+			// Remember the user's deliberate choice to close.
+			setUserClosed(cur, true)
+			return nil
 		}
 	}
 	width := globalOptions()["@sentinela_width"]
 	if width == "" {
 		width = defaultWidth
 	}
+	// User opened manually: clear any previous "closed" marker.
+	setUserClosed(cur, false)
 	return openSidebar(bin, cur, width)
 }
 
@@ -242,4 +385,26 @@ func siblingSidebar(paneID string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// serverIdentity returns a short, stable identifier for the current tmux server.
+// It uses the tmux socket path, hashed to a short string safe for filenames.
+func serverIdentity() string {
+	socket, err := tmux("display-message", "-p", "#{socket_path}")
+	if err != nil || socket == "" {
+		// Fallback: parse TMUX env var (format: socket,window,pane)
+		if tmuxEnv := os.Getenv("TMUX"); tmuxEnv != "" {
+			if idx := strings.Index(tmuxEnv, ","); idx > 0 {
+				socket = tmuxEnv[:idx]
+			} else {
+				socket = tmuxEnv
+			}
+		}
+	}
+	if socket == "" {
+		return "unknown"
+	}
+	// Short hash for filesystem-safe keys
+	sum := sha256.Sum256([]byte(socket))
+	return fmt.Sprintf("%x", sum[:4]) // 8 hex chars
 }
