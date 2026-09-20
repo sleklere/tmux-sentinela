@@ -1,7 +1,7 @@
-// OpenCode plugin: reports this process's agent state to
+// OpenCode plugin: reports this TUI's selected session to
 // ~/.cache/tmux-sentinela/opencode/<pid>.json for the tmux-sentinela sidebar.
-// Runs inside the opencode server process. The pane comes from TMUX_PANE when
-// inherited; otherwise the sidebar maps pid to pane through the process tree.
+// The OpenCode server is shared by every TUI in a directory, so a reporter
+// must never aggregate its sessions: one tmux pane has one selected session.
 import { mkdir, rename, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -20,9 +20,9 @@ function serverIdentity() {
 
 const serverID = serverIdentity();
 
-export const TmuxSentinela = async ({ directory }) => {
-  const roots = new Map(); // root sessionID -> { title, status }
-  const pending = new Map(); // permission id -> session id
+export const TmuxSentinela = async ({ directory, sessionID = "" }) => {
+  let session = { id: sessionID, title: "", status: "idle" };
+  const pending = new Set(); // permission/form IDs for the selected session
   const ready = mkdir(dir, { recursive: true }).catch(() => {});
   let sequence = 0;
   let writes = Promise.resolve();
@@ -31,11 +31,9 @@ export const TmuxSentinela = async ({ directory }) => {
   const write = async () => {
     await ready;
     if (disposed) return;
-    const sessions = [...roots.values()];
-    const status = pending.size ? "blocked" : sessions.some((s) => s.status === "busy") ? "busy" : "idle";
-    const name = sessions.at(-1)?.title || "";
+    const status = pending.size ? "blocked" : session.status;
     const revision = ++sequence;
-    const state = { pid: process.pid, pane: process.env.TMUX_PANE || "", name, status, updated: Date.now(), revision, cwd: directory, server: serverID };
+    const state = { pid: process.pid, pane: process.env.TMUX_PANE || "", session: session.id, name: session.title, status, updated: Date.now(), revision, cwd: directory, server: serverID };
     const data = JSON.stringify(state);
     const temp = `${file}.${revision}.tmp`;
     writes = writes
@@ -48,7 +46,18 @@ export const TmuxSentinela = async ({ directory }) => {
     await writes;
   };
 
-  const root = (id) => roots.get(id) ?? (roots.set(id, { title: "", status: "idle" }), roots.get(id));
+  const isSelected = (id) => id && id === session.id;
+
+  const select = async ({ sessionID: id = "", title = "", status = "idle", blocked = false }) => {
+    const nextStatus = status === "busy" || status === "running" ? "busy" : "idle";
+    const changed = session.id !== id || session.title !== title || session.status !== nextStatus ||
+      (blocked !== (pending.size > 0));
+    if (!changed) return;
+    session = { id, title, status: nextStatus };
+    pending.clear();
+    if (blocked) pending.add("snapshot");
+    await write();
+  };
 
   const cleanup = async () => {
     disposed = true;
@@ -59,6 +68,7 @@ export const TmuxSentinela = async ({ directory }) => {
   await write();
 
   return {
+    select,
     event: async ({ event }) => {
       const p = event.data ?? event.properties;
       switch (event.type) {
@@ -67,46 +77,50 @@ export const TmuxSentinela = async ({ directory }) => {
           {
             const info = p.info ?? p;
             const sessionID = info.sessionID ?? info.id;
-            if (info.parentID) return; // subagent sessions don't drive the pane state
-            root(sessionID).title = info.title || "";
+            if (!isSelected(sessionID)) return;
+            session.title = info.title || "";
           }
           break;
         case "session.renamed":
-          if (!roots.has(p.sessionID)) return;
-          root(p.sessionID).title = p.title || "";
+          if (!isSelected(p.sessionID)) return;
+          session.title = p.title || "";
           break;
         case "session.status":
-          if (!roots.has(p.sessionID)) return;
-          root(p.sessionID).status = p.status.type === "idle" ? "idle" : "busy";
+          if (!isSelected(p.sessionID)) return;
+          session.status = p.status.type === "idle" ? "idle" : "busy";
           break;
         case "session.idle":
-          if (!roots.has(p.sessionID)) return;
-          root(p.sessionID).status = "idle";
+          if (!isSelected(p.sessionID)) return;
+          session.status = "idle";
           break;
         case "session.deleted":
           {
             const sessionID = p.sessionID ?? p.info?.id;
-            roots.delete(sessionID);
-            for (const [id, pendingSessionID] of pending) {
-              if (pendingSessionID === sessionID) pending.delete(id);
-            }
+            if (!isSelected(sessionID)) return;
+            session = { id: "", title: "", status: "idle" };
+            pending.clear();
           }
           break;
         case "session.error":
-          if (roots.has(p.sessionID)) root(p.sessionID).status = "idle";
+          if (!isSelected(p.sessionID)) return;
+          session.status = "idle";
           break;
         case "permission.updated":
         case "permission.asked":
-          pending.set(p.id, p.sessionID);
+          if (!isSelected(p.sessionID)) return;
+          pending.add(p.id);
           break;
         case "permission.replied":
+          if (!isSelected(p.sessionID)) return;
           pending.delete(p.permissionID || p.requestID);
           break;
         case "form.created":
-          pending.set(p.form.id, p.form.sessionID);
+          if (!isSelected(p.form.sessionID)) return;
+          pending.add(p.form.id);
           break;
         case "form.replied":
         case "form.cancelled":
+          if (!isSelected(p.sessionID)) return;
           pending.delete(p.id);
           break;
         default:
