@@ -50,9 +50,10 @@ if [ "$rebuilt" = "on" ]; then
 	done < <(tmux list-panes -a -F '#{window_id} #{?#{@sentinela_sidebar},#{pane_id},}')
 fi
 
-# OpenCode plugin (auto-loaded from ~/.config/opencode/plugins)
+# OpenCode V2 server + TUI plugin (auto-loaded from this directory layout)
 mkdir -p "$HOME/.config/opencode/plugins"
-ln -sfn "$DIR/opencode/tmux-sentinela.js" "$HOME/.config/opencode/plugins/tmux-sentinela.js"
+rm -f "$HOME/.config/opencode/plugins/tmux-sentinela.js"
+ln -sfn "$DIR/opencode/tmux-sentinela" "$HOME/.config/opencode/plugins/tmux-sentinela"
 
 autocreate=$(tmux show-option -gqv @sentinela_autocreate)
 [ "${autocreate:-on}" = "on" ] && "$BIN" ensure

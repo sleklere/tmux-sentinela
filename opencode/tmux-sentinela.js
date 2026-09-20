@@ -60,12 +60,20 @@ export const TmuxSentinela = async ({ directory }) => {
 
   return {
     event: async ({ event }) => {
-      const p = event.properties;
+      const p = event.data ?? event.properties;
       switch (event.type) {
         case "session.created":
         case "session.updated":
-          if (p.info.parentID) return; // subagent sessions don't drive the pane state
-          root(p.info.id).title = p.info.title || "";
+          {
+            const info = p.info ?? p;
+            const sessionID = info.sessionID ?? info.id;
+            if (info.parentID) return; // subagent sessions don't drive the pane state
+            root(sessionID).title = info.title || "";
+          }
+          break;
+        case "session.renamed":
+          if (!roots.has(p.sessionID)) return;
+          root(p.sessionID).title = p.title || "";
           break;
         case "session.status":
           if (!roots.has(p.sessionID)) return;
@@ -76,9 +84,12 @@ export const TmuxSentinela = async ({ directory }) => {
           root(p.sessionID).status = "idle";
           break;
         case "session.deleted":
-          roots.delete(p.info.id);
-          for (const [id, sessionID] of pending) {
-            if (sessionID === p.info.id) pending.delete(id);
+          {
+            const sessionID = p.sessionID ?? p.info?.id;
+            roots.delete(sessionID);
+            for (const [id, pendingSessionID] of pending) {
+              if (pendingSessionID === sessionID) pending.delete(id);
+            }
           }
           break;
         case "session.error":
@@ -90,6 +101,13 @@ export const TmuxSentinela = async ({ directory }) => {
           break;
         case "permission.replied":
           pending.delete(p.permissionID || p.requestID);
+          break;
+        case "form.created":
+          pending.set(p.form.id, p.form.sessionID);
+          break;
+        case "form.replied":
+        case "form.cancelled":
+          pending.delete(p.id);
           break;
         default:
           return;
