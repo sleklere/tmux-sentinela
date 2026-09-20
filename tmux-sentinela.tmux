@@ -42,12 +42,12 @@ tmux set-hook -g 'after-select-window[50]' "run-shell -b \"'$BIN' refresh\""
 tmux set-hook -g 'client-session-changed[50]' "run-shell -b \"'$BIN' refresh\""
 
 if [ "$rebuilt" = "on" ]; then
-	while read -r window sidebar; do
-		if [ -n "$sidebar" ]; then
-			"$BIN" toggle "$window"
+	while read -r window sidebar_pane; do
+		if [ -n "$sidebar_pane" ]; then
+			tmux kill-pane -t "$sidebar_pane"
 			"$BIN" toggle "$window"
 		fi
-	done < <(tmux list-panes -a -F '#{window_id} #{@sentinela_sidebar}')
+	done < <(tmux list-panes -a -F '#{window_id} #{?#{@sentinela_sidebar},#{pane_id},}')
 fi
 
 # OpenCode plugin (auto-loaded from ~/.config/opencode/plugins)
