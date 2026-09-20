@@ -34,17 +34,44 @@ func TestAudioPlayers(t *testing.T) {
 }
 
 func TestDesktopNotificationCommands(t *testing.T) {
-	linux := desktopNotificationCommands("linux", "title", "body")
+	linux := desktopNotificationCommands("linux", "title", "body", "utilities-terminal", "dialog-warning")
 	if len(linux) != 1 || linux[0].program != "notify-send" ||
-		!reflect.DeepEqual(linux[0].args, []string{"--", "title", "body"}) {
+		!reflect.DeepEqual(linux[0].args, []string{
+			"--icon=utilities-terminal", "--app-icon=dialog-warning", "--", "title", "body",
+		}) {
 		t.Fatalf("Linux notification command = %+v", linux)
 	}
 
-	mac := desktopNotificationCommands("darwin", "title", "body")
+	mac := desktopNotificationCommands("darwin", "title", "body", "utilities-terminal", "dialog-warning")
 	if len(mac) != 2 || mac[0].program != "terminal-notifier" || mac[1].program != "/usr/bin/osascript" {
 		t.Fatalf("macOS notification commands = %+v", mac)
 	}
 	if got := mac[1].args[len(mac[1].args)-2:]; !reflect.DeepEqual(got, []string{"title", "body"}) {
 		t.Fatalf("osascript does not receive title/body as argv: %v", mac[1].args)
+	}
+}
+
+func TestAgentNotificationsUseAgentNameAndOutcomeIcons(t *testing.T) {
+	a := Agent{Name: "agent", Pane: Pane{Session: "work", WindowIndex: 2}}
+	blocked := blockedNotification(a)
+	finished := completionNotification(a)
+
+	if blocked.title != "agent" {
+		t.Fatalf("blocked notification title = %q", blocked.title)
+	}
+	if finished.title != "agent" {
+		t.Fatalf("finished notification title = %q", finished.title)
+	}
+	if blocked.body != "agent is waiting for you (work:2)" {
+		t.Fatalf("blocked notification body = %q", blocked.body)
+	}
+	if finished.body != "agent finished (work:2)" {
+		t.Fatalf("finished notification body = %q", finished.body)
+	}
+	if blocked.icon != "utilities-terminal" || blocked.appIcon != "dialog-warning" {
+		t.Fatalf("blocked notification icons = %q, %q", blocked.icon, blocked.appIcon)
+	}
+	if finished.icon != "utilities-terminal" || finished.appIcon != "emblem-default" {
+		t.Fatalf("finished notification icons = %q, %q", finished.icon, finished.appIcon)
 	}
 }
