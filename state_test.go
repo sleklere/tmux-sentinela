@@ -140,6 +140,16 @@ func TestReadClaudeSessionsChoosesNewestSource(t *testing.T) {
 	}
 }
 
+func TestReadPiStates(t *testing.T) {
+	isolateState(t)
+	want := piState{PID: os.Getpid(), Pane: "%7", Name: "Refactor", Status: "busy", Updated: 123, CWD: "/work/project"}
+	writeJSON(t, filepath.Join(stateDir(), "pi", fmt.Sprintf("%d.json", want.PID)), want)
+	writeTestFile(t, filepath.Join(stateDir(), "pi", "partial.json"), []byte("{"))
+	if got := readPiStates(); !reflect.DeepEqual(got, []piState{want}) {
+		t.Fatalf("Pi states = %+v, want %+v", got, []piState{want})
+	}
+}
+
 func TestStateReadersRemoveDeadMirrors(t *testing.T) {
 	isolateState(t)
 	// No process can have this PID on supported Linux/macOS hosts.
@@ -147,17 +157,24 @@ func TestStateReadersRemoveDeadMirrors(t *testing.T) {
 	if pidAlive(deadPID) {
 		t.Fatal("dead PID is unexpectedly alive")
 	}
-	for _, kind := range []string{"claude", "opencode"} {
+	for _, kind := range []string{"claude", "opencode", "pi"} {
 		key := fmt.Sprintf("%s:%d", kind, deadPID)
 		path := filepath.Join(stateDir(), kind, fmt.Sprintf("%d.json", deadPID))
 		writeJSON(t, path, map[string]any{"pid": deadPID})
 		writeSeen(key, time.Now())
-		if kind == "claude" {
+		switch kind {
+		case "claude":
 			if got := readClaudeSessions(); len(got) != 0 {
 				t.Fatalf("dead Claude session returned: %+v", got)
 			}
-		} else if got := readOpencodeStates(); len(got) != 0 {
-			t.Fatalf("dead OpenCode session returned: %+v", got)
+		case "opencode":
+			if got := readOpencodeStates(); len(got) != 0 {
+				t.Fatalf("dead OpenCode session returned: %+v", got)
+			}
+		case "pi":
+			if got := readPiStates(); len(got) != 0 {
+				t.Fatalf("dead Pi session returned: %+v", got)
+			}
 		}
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("stale %s file not removed: %v", kind, err)

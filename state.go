@@ -23,7 +23,7 @@ const (
 )
 
 type Agent struct {
-	Kind   string // claude | opencode | hermes
+	Kind   string // claude | opencode | pi | hermes
 	Name   string
 	Status Status
 	Since  time.Time // last status change
@@ -33,7 +33,7 @@ type Agent struct {
 	Visual bool   // state came from the pane's rendered screen
 }
 
-// stateDir holds markers written by hooks and the OpenCode plugin.
+// stateDir holds markers written by hooks and agent integrations.
 func stateDir() string {
 	return filepath.Join(cacheHome(), "tmux-sentinela")
 }
@@ -199,6 +199,41 @@ func readOpencodeStates() []opencodeState {
 	return out
 }
 
+// --- Pi: ~/.cache/tmux-sentinela/pi/<pid>.json, written by its extension.
+
+type piState struct {
+	PID      int    `json:"pid"`
+	Pane     string `json:"pane"`
+	Name     string `json:"name"`
+	Status   string `json:"status"` // idle | busy | blocked
+	Updated  int64  `json:"updated"`
+	Revision uint64 `json:"revision"`
+	CWD      string `json:"cwd"`
+	Server   string `json:"server"`
+}
+
+func readPiStates() []piState {
+	files, _ := filepath.Glob(filepath.Join(stateDir(), "pi", "*.json"))
+	var out []piState
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var s piState
+		if json.Unmarshal(b, &s) != nil || s.PID == 0 {
+			continue
+		}
+		if !pidAlive(s.PID) {
+			os.Remove(f)
+			removeSeen("pi:" + strconv.Itoa(s.PID))
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
 // currentServerID returns a short, stable identifier for the current tmux server.
 func currentServerID() string {
 	return serverIdentity()
@@ -318,7 +353,39 @@ func collectPanes(panes []Pane) []Agent {
 		claimed[pane.ID] = true
 	}
 
+	for _, s := range readPiStates() {
+		if s.Server != "" && s.Server != serverID {
+			continue
+		}
+		key := "pi:" + serverID + ":" + strconv.Itoa(s.PID)
+		pane, ok := byID[s.Pane]
+		if !ok { // TMUX_PANE not inherited: walk the process tree instead
+			if pane, ok = paneOf(s.PID, parents, byPID); !ok {
+				continue
+			}
+		}
+		a := Agent{Kind: "pi", Name: s.Name, PID: s.PID, Pane: pane,
+			Key: key, Since: time.UnixMilli(s.Updated)}
+		switch s.Status {
+		case "busy":
+			a.Status = Busy
+		case "blocked":
+			a.Status = Blocked
+		}
+		if a.Name == "" {
+			a.Name = filepath.Base(s.CWD)
+		}
+		if a.Name == "" {
+			a.Name = "Pi"
+		}
+		agents = append(agents, a)
+		claimed[pane.ID] = true
+	}
+
 	for _, s := range readOpencodeStates() {
+		if s.Server != "" && s.Server != serverID {
+			continue
+		}
 		key := "opencode:" + serverID + ":" + strconv.Itoa(s.PID)
 		pane, ok := byID[s.Pane]
 		if !ok { // TMUX_PANE not inherited: walk the process tree instead

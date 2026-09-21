@@ -55,6 +55,11 @@ mkdir -p "$HOME/.config/opencode/plugins"
 rm -f "$HOME/.config/opencode/plugins/tmux-sentinela.js"
 ln -sfn "$DIR/opencode/tmux-sentinela" "$HOME/.config/opencode/plugins/tmux-sentinela"
 
+# Pi auto-discovers global TypeScript extensions from this directory.
+mkdir -p "$HOME/.pi/agent/extensions"
+rm -f "$HOME/.pi/agent/extensions/tmux-sentinela.ts"
+ln -sfn "$DIR/pi/tmux-sentinela.ts" "$HOME/.pi/agent/extensions/tmux-sentinela.ts"
+
 autocreate=$(tmux show-option -gqv @sentinela_autocreate)
 [ "${autocreate:-on}" = "on" ] && "$BIN" ensure
 exit 0

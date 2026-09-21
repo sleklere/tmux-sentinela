@@ -51,6 +51,7 @@ func watchedStateDirs() []string {
 		filepath.Join(stateDir(), "claude"),
 		filepath.Join(stateDir(), "claude-blocked"),
 		filepath.Join(stateDir(), "opencode"),
+		filepath.Join(stateDir(), "pi"),
 	}
 }
 
@@ -64,7 +65,7 @@ func isRefreshEvent(path string) bool {
 		return false
 	}
 	switch dir {
-	case filepath.Join(stateDir(), "claude"), filepath.Join(stateDir(), "opencode"):
+	case filepath.Join(stateDir(), "claude"), filepath.Join(stateDir(), "opencode"), filepath.Join(stateDir(), "pi"):
 		return strings.HasSuffix(base, ".json")
 	case filepath.Join(stateDir(), "claude-blocked"):
 		return true

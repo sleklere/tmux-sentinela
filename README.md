@@ -2,7 +2,7 @@
 
 *Sentinela* is Spanish for sentinel.
 
-A tmux sidebar that lists every AI coding agent (Claude Code, OpenCode, Hermes)
+A tmux sidebar that lists every AI coding agent (Claude Code, OpenCode, Pi, Hermes)
 running in any session, with its state, and jumps to its pane.
 
 ```
@@ -67,6 +67,10 @@ Claude Code needs hooks in `~/.claude/settings.json` calling
 
 The hooks also mirror Claude's session registry into the plugin cache. This
 keeps detection working when Claude runs with a custom `CLAUDE_CONFIG_DIR`.
+
+Pi is integrated automatically: sourcing the plugin links its extension into
+`~/.pi/agent/extensions/`. Restart Pi, or run `/reload` in an existing Pi
+session, after installing or updating Sentinela.
 
 ## Usage
 
@@ -144,6 +148,7 @@ shell: `set -g @resurrect-processes '"~tmux-sentinela sidebar"'`.
 | Claude Code, local | Claude session registry (`status`), mirrored by hooks for custom config dirs; pid → pane via the process tree | hook `Notification permission_prompt` or `PreToolUse AskUserQuestion`; cleared by any other hook | `name` (honors `/rename`) |
 | Claude Code over SSH | live prompt, activity hints and tmux's OSC-derived pane title | confirmation, permission, elicitation and workflow forms | `Claude Code` |
 | OpenCode, local | plugin: `session.status` / `session.idle` | `permission.updated` or `permission.asked` until `permission.replied` | `title` of the root session |
+| Pi, local | extension: `agent_start` / `agent_settled` | extension: active Pi UI prompt | Pi session name, then working directory |
 | OpenCode over SSH | live composer footer, interrupt hint or progress bar | permission marker or form controls | session title from `OC | …`, then `OpenCode` |
 | Hermes, local or over SSH | live Hermes composer rendered in the local tmux pane | approval, clarification, sudo and secret prompt symbols | session-title badge, then active skin name |
 
