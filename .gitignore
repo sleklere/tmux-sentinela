@@ -1,4 +1,6 @@
 bin/
+/tmux-sentinela
+*.test
 build.log
 coverage.out
 coverage.html
