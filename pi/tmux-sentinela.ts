@@ -55,10 +55,12 @@ export default function (pi: ExtensionAPI) {
     await writes;
   };
 
-  const cleanup = async () => {
+  // Reload/new/resume/fork keep this process: the next instance overwrites the
+  // file, so removing it would drop the agent (and the sidebar cursor) for a poll.
+  const cleanup = async (event: { reason: string }) => {
     disposed = true;
     await writes;
-    await unlink(file).catch(() => {});
+    if (event.reason === "quit") await unlink(file).catch(() => {});
   };
 
   pi.on("session_start", async (_event, ctx) => {
