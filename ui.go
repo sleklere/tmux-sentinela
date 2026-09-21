@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"math"
+	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -90,15 +92,40 @@ type model struct {
 	pendingPoll       bool
 	watchRefresh      tea.Cmd
 	lastPollRequested time.Time
+	binStat           os.FileInfo // executable this process started from
+	newBin            os.FileInfo // rebuilt executable seen at the previous check
+	restart           bool        // quit to re-exec the rebuilt executable
 }
 
 func newModel(bin string) model {
 	o := globalOptions()
 	now := time.Now()
+	binStat, _ := os.Stat(bin)
 	return model{bin: bin, self: selfPane(), th: loadTheme(o), notify: o["@sentinela_notify"],
 		notifyDone: o["@sentinela_notify_done"], sound: o["@sentinela_sound"],
 		seen: map[string]time.Time{}, started: now, requestedSequence: 1, polling: true,
-		lastPollRequested: now}
+		lastPollRequested: now, binStat: binStat}
+}
+
+// rebuilt reports whether the executable on disk was replaced since startup,
+// once the new file stayed unchanged for a whole check (a build may still be
+// writing it). Otherwise a sidebar keeps running stale code indefinitely.
+func (m *model) rebuilt() bool {
+	if m.binStat == nil {
+		return false
+	}
+	info, err := os.Stat(m.bin)
+	if err != nil || sameBinary(info, m.binStat) {
+		m.newBin = nil
+		return false
+	}
+	stable := m.newBin != nil && sameBinary(info, m.newBin)
+	m.newBin = info
+	return stable
+}
+
+func sameBinary(a, b os.FileInfo) bool {
+	return os.SameFile(a, b) && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
 }
 
 func (m model) poll(sequence uint64) tea.Msg {
@@ -170,6 +197,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.frame++
 		if at := time.Time(msg); at.Sub(m.lastPollRequested) >= fallbackInterval {
+			if m.rebuilt() {
+				m.restart = true
+				return m, tea.Quit
+			}
 			return m, tea.Batch(tick(), m.requestPoll(at))
 		}
 		return m, tick()
@@ -553,10 +584,19 @@ func runSidebar(bin string) error {
 		paintSidebar(self, string(loadTheme(globalOptions()).background))
 	}
 	m := newModel(bin)
-	if watcher, watchErr := newRefreshWatcher(); watchErr == nil {
-		defer watcher.Close()
+	watcher, watchErr := newRefreshWatcher()
+	if watchErr == nil {
 		m.watchRefresh = watchRefresh(watcher)
 	}
-	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
-	return err
+	final, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	if watchErr == nil {
+		watcher.Close()
+	}
+	if err != nil {
+		return err
+	}
+	if last, ok := final.(model); ok && last.restart {
+		return syscall.Exec(bin, os.Args, os.Environ())
+	}
+	return nil
 }

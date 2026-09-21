@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -311,6 +313,39 @@ func TestFallbackPollRunsEveryTwoSeconds(t *testing.T) {
 	m = updated.(model)
 	if m.requestedSequence != 1 || !m.polling {
 		t.Fatalf("fallback did not request poll: sequence=%d polling=%v", m.requestedSequence, m.polling)
+	}
+}
+
+func TestSidebarRestartsOnceRebuiltBinaryIsStable(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "tmux-sentinela")
+	if err := os.WriteFile(bin, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := testModel()
+	m.bin = bin
+	m.binStat, _ = os.Stat(bin)
+	base := time.Now()
+	check := func() bool {
+		base = base.Add(fallbackInterval)
+		updated, _ := m.Update(tickMsg(base))
+		m = updated.(model)
+		return m.restart
+	}
+	if check() {
+		t.Fatal("restarted with unchanged binary")
+	}
+	// A build replaces the file: a new inode, not an in-place write.
+	if err := os.Remove(bin); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("new build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if check() {
+		t.Fatal("restarted before the rebuilt binary was seen twice")
+	}
+	if !check() {
+		t.Fatal("did not restart after a stable rebuild")
 	}
 }
 
