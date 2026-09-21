@@ -117,7 +117,7 @@ would without the plugin.
 | `@sentinela_notify` | `tmux` | on blocked: `tmux` (display-message), `desktop` (system notification), `both`, `off` |
 | `@sentinela_notify_done` | `off` | on background completion: `tmux`, `desktop`, `both`, `off` |
 | `@sentinela_sound` | `off` | on completion: `on` (embedded sound), `off` |
-| `@sentinela_bg` | `@th_base` | opaque background of the sidebar pane |
+| `@sentinela_bg` | unset | optional opaque background of the sidebar pane |
 | `@sentinela_color_text` | `@th_text` | agent names |
 | `@sentinela_color_muted` | `@th_muted` | details, idle glyph |
 | `@sentinela_color_accent` | `@th_accent1` | cursor bar, done glyph |
@@ -127,11 +127,12 @@ would without the plugin.
 | `@sentinela_color_alert` | `@th_alert` | blocked glyph and count |
 
 Colors resolve in order: `@sentinela_color_*`, then the `@th_*` globals of a
-tmux-wide theme if you keep one, then a rose-pine fallback. Changing them
-applies live to open sidebars: colors are re-read on events and at least every
-two seconds, and the pane background is repainted only when its resolved color
-changes. Without
-`@sentinela_bg` or `@th_base`, the sidebar inherits the window's styles.
+tmux-wide theme if you keep one, then a rose-pine fallback. The sidebar leaves
+its background unset by default, so it uses the same terminal transparency as
+your work panes. Set `@sentinela_bg` only to request an opaque sidebar
+background. Colors and an explicit background apply live to open sidebars:
+they are re-read on events and at least every two seconds, and the pane
+background is repainted only when its resolved color changes.
 
 Desktop notifications use `notify-send` on Linux and `terminal-notifier` with
 an `osascript` fallback on macOS. The embedded WAV uses `paplay`, `pw-play`,

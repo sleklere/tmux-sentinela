@@ -13,7 +13,9 @@ import (
 )
 
 // Theme colors: explicit @sentinela_color_* options win, then the @th_* options
-// of a tmux-wide theme, then rose-pine so the sidebar renders anywhere.
+// of a tmux-wide theme, then rose-pine so the sidebar renders anywhere. The
+// pane background is intentionally separate: it stays transparent unless the
+// user explicitly sets @sentinela_bg.
 type theme struct {
 	text, muted, accent, title, busy, busyGlow, alert lipgloss.Color
 	background                                        lipgloss.Color
@@ -30,7 +32,7 @@ func loadTheme(o map[string]string) theme {
 	}
 	busy := pick("@sentinela_color_busy", "@th_accent3", "#ffd166")
 	return theme{
-		background: pick("@sentinela_bg", "@th_base", ""),
+		background: pick("@sentinela_bg", "", ""),
 		text:       pick("@sentinela_color_text", "@th_text", "#e0def4"),
 		muted:      pick("@sentinela_color_muted", "@th_muted", "#908caa"),
 		accent:     pick("@sentinela_color_accent", "@th_accent1", "#9ccfd8"),
