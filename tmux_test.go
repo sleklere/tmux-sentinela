@@ -4,7 +4,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -14,16 +16,21 @@ func isolatedTmux(t *testing.T) func(...string) string {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux is not installed")
 	}
-	isolateState(t)
 	// Keep the Unix socket path short enough on macOS too.
 	dir, err := os.MkdirTemp("", "sentinela-")
 	if err != nil {
 		t.Fatal(err)
 	}
+	// State lives next to the socket instead of in t.TempDir(): kill-server
+	// doesn't wait for pane processes or run-shell jobs, which may still be
+	// writing state, and t.TempDir() fails the test when RemoveAll races them.
+	isolateStateAt(t, filepath.Join(dir, "home"))
 	socket := filepath.Join(dir, "socket")
 	t.Cleanup(func() {
+		out, _ := exec.Command("tmux", "-S", socket, "list-panes", "-a", "-F", "#{pane_pid}").Output()
 		exec.Command("tmux", "-S", socket, "kill-server").Run()
-		os.RemoveAll(dir)
+		waitForExit(strings.Fields(string(out)), 2*time.Second)
+		removeAllRetry(dir, 2*time.Second)
 	})
 	run := func(args ...string) string {
 		t.Helper()
@@ -37,6 +44,26 @@ func isolatedTmux(t *testing.T) func(...string) string {
 	t.Setenv("TMUX", socket+",0,0")
 	t.Setenv("TMUX_PANE", "%0")
 	return run
+}
+
+func waitForExit(pids []string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for _, s := range pids {
+		pid, err := strconv.Atoi(s)
+		if err != nil {
+			continue
+		}
+		for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+}
+
+func removeAllRetry(dir string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for os.RemoveAll(dir) != nil && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func waitForWindowName(t *testing.T, run func(...string) string, want string) {

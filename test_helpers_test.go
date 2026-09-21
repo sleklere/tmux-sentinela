@@ -9,7 +9,11 @@ import (
 
 func isolateState(t *testing.T) {
 	t.Helper()
-	root := t.TempDir()
+	isolateStateAt(t, t.TempDir())
+}
+
+func isolateStateAt(t *testing.T, root string) {
+	t.Helper()
 	t.Setenv("HOME", root)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(root, ".claude"))
