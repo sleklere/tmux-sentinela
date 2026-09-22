@@ -63,6 +63,21 @@ func TestBusyPulseFollowsTheme(t *testing.T) {
 	}
 }
 
+func TestBlockedBackgroundTintsThemeBase(t *testing.T) {
+	th := loadTheme(map[string]string{"@th_alert": "#ff0000", "@th_base": "#000000"})
+	if th.blockedBg != "#4d0000" {
+		t.Fatalf("blockedBg = %q, want alert mixed into base", th.blockedBg)
+	}
+	own := loadTheme(map[string]string{"@th_alert": "#ff0000", "@sentinela_color_blocked_bg": "#123456"})
+	if own.blockedBg != "#123456" {
+		t.Fatalf("explicit blockedBg = %q", own.blockedBg)
+	}
+	named := loadTheme(map[string]string{"@th_alert": "red"})
+	if named.blockedBg != "red" {
+		t.Fatalf("non-hex alert blockedBg = %q, want the alert itself", named.blockedBg)
+	}
+}
+
 func TestSidebarLoadsSharedDoneState(t *testing.T) {
 	for _, alreadyRunning := range []bool{false, true} {
 		name := "new sidebar"
@@ -415,8 +430,8 @@ func TestViewAgentRows(t *testing.T) {
 	want := " agents 1\n\n" +
 		"  ✓ done\n" +
 		"    claude  work:1\n" +
-		"▌ ● blocked\n" +
-		"▌   opencode  code:2\n"
+		"▌ ● blocked" + strings.Repeat(" ", 21) + "\n" +
+		"▌   opencode  code:2" + strings.Repeat(" ", 12) + "\n"
 	if plain != want {
 		t.Fatalf("view =\n%q\nwant =\n%q", plain, want)
 	}

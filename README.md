@@ -125,6 +125,7 @@ would without the plugin.
 | `@sentinela_color_busy` | `@th_accent3` | start of the busy pulse |
 | `@sentinela_color_busy_glow` | derived from busy color | theme-aware peak of the busy pulse; optional override |
 | `@sentinela_color_alert` | `@th_alert` | blocked glyph and count |
+| `@sentinela_color_blocked_bg` | alert mixed into `@sentinela_bg` / `@th_base` | background of blocked rows |
 
 Colors resolve in order: `@sentinela_color_*`, then the `@th_*` globals of a
 tmux-wide theme if you keep one, then a rose-pine fallback. The sidebar leaves

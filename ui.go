@@ -21,7 +21,13 @@ import (
 type theme struct {
 	text, muted, accent, title, busy, busyGlow, alert lipgloss.Color
 	background                                        lipgloss.Color
+	blockedBg                                         lipgloss.Color // tint behind blocked rows
 }
+
+// blockedTint is how much of the alert color the blocked-row background
+// takes; the rest is the theme base, so the row reads as a tint rather than a
+// solid block.
+const blockedTint = 0.3
 
 func loadTheme(o map[string]string) theme {
 	pick := func(own, th, def string) lipgloss.Color {
@@ -33,6 +39,8 @@ func loadTheme(o map[string]string) theme {
 		return lipgloss.Color(def)
 	}
 	busy := pick("@sentinela_color_busy", "@th_accent3", "#ffd166")
+	alert := pick("@sentinela_color_alert", "@th_alert", "#eb6f92")
+	base := pick("@sentinela_bg", "@th_base", "#191724")
 	return theme{
 		background: pick("@sentinela_bg", "", ""),
 		text:       pick("@sentinela_color_text", "@th_text", "#e0def4"),
@@ -41,7 +49,8 @@ func loadTheme(o map[string]string) theme {
 		title:      pick("@sentinela_color_title", "@th_accent2", "#c4a7e7"),
 		busy:       busy,
 		busyGlow:   pick("@sentinela_color_busy_glow", "", string(pulseVariant(busy))),
-		alert:      pick("@sentinela_color_alert", "@th_alert", "#eb6f92"),
+		alert:      alert,
+		blockedBg:  pick("@sentinela_color_blocked_bg", "", string(mixColor(alert, base, 1-blockedTint))),
 	}
 }
 
@@ -508,21 +517,23 @@ func (m model) View() string {
 		return b.String()
 	}
 
-	name := lipgloss.NewStyle().Foreground(m.th.text)
-	dim := lipgloss.NewStyle().Foreground(m.th.muted)
-	bar := lipgloss.NewStyle().Foreground(m.th.accent).Render("▌")
-
 	for i, a := range m.agents {
+		// Every segment carries the row background: an inner reset would
+		// otherwise cut the tint short. Other rows keep the pane transparent.
+		row := lipgloss.NewStyle()
+		if a.Status == Blocked {
+			row = row.Background(m.th.blockedBg)
+		}
 		g, c := m.glyph(a)
-		nameStyle := name
+		nameStyle := row.Foreground(m.th.text)
 		if m.done(a) || a.Status == Blocked {
 			nameStyle = nameStyle.Bold(true)
 		}
-		edge := " "
+		edge := row.Render(" ")
 		if i == m.cursor {
-			edge = bar
+			edge = row.Foreground(m.th.accent).Render("▌")
 		}
-		line1 := edge + " " + lipgloss.NewStyle().Foreground(c).Render(g) + " " +
+		line1 := edge + row.Render(" ") + row.Foreground(c).Render(g) + row.Render(" ") +
 			nameStyle.Render(truncate(a.Name, w-5))
 		detail := a.Kind + "  " + fmt.Sprintf("%s:%d", a.Pane.Session, a.Pane.WindowIndex)
 		if a.Status != Idle { // how long it has been working / waiting
@@ -530,10 +541,22 @@ func (m model) View() string {
 				detail += "  " + d
 			}
 		}
-		line2 := edge + "   " + dim.Render(truncate(detail, w-5))
+		line2 := edge + row.Render("   ") + row.Foreground(m.th.muted).Render(truncate(detail, w-5))
+		if a.Status == Blocked {
+			line1 = fillRow(line1, row, w)
+			line2 = fillRow(line2, row, w)
+		}
 		b.WriteString(line1 + "\n" + line2 + "\n")
 	}
 	return b.String()
+}
+
+// fillRow pads a rendered line with the row background up to the pane width.
+func fillRow(line string, row lipgloss.Style, w int) string {
+	if pad := w - lipgloss.Width(line); pad > 0 {
+		return line + row.Render(strings.Repeat(" ", pad))
+	}
+	return line
 }
 
 func countStatus(agents []Agent, s Status) int {
