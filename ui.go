@@ -446,12 +446,17 @@ func (m model) glyph(a Agent) (string, lipgloss.Color) {
 }
 
 func pulseColor(from, to lipgloss.Color, frame int) lipgloss.Color {
+	return mixColor(from, to, (1-math.Cos(2*math.Pi*float64(frame%busyCycleFrames)/busyCycleFrames))/2)
+}
+
+// mixColor moves t of the way from one hex color to another. Non-hex colors
+// cannot be mixed, so the starting color is returned as is.
+func mixColor(from, to lipgloss.Color, t float64) lipgloss.Color {
 	start, startOK := parseHexColor(from)
 	end, endOK := parseHexColor(to)
 	if !startOK || !endOK {
 		return from
 	}
-	t := (1 - math.Cos(2*math.Pi*float64(frame%busyCycleFrames)/busyCycleFrames)) / 2
 	mix := func(a, b uint64) uint8 {
 		return uint8(math.Round(float64(a) + (float64(b)-float64(a))*t))
 	}
