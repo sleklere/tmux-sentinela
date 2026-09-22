@@ -46,6 +46,43 @@ func isolatedTmux(t *testing.T) func(...string) string {
 	return run
 }
 
+func TestSessionCloseWakesOtherSidebars(t *testing.T) {
+	for _, tc := range []struct {
+		name, command string
+		kill          bool
+	}{
+		{name: "kill-session", command: "sleep 300", kill: true},
+		{name: "last pane exits", command: "sleep 0.1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			run := isolatedTmux(t)
+			run("set-option", "-g", "@sentinela_autocreate", "off")
+			loadPlugin(t)
+
+			watcher, err := newRefreshWatcher()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer watcher.Close()
+			result := make(chan any, 1)
+			go func() { result <- watchRefresh(watcher)() }()
+
+			run("new-session", "-d", "-s", "closing", tc.command)
+			if tc.kill {
+				run("kill-session", "-t", "closing")
+			}
+			select {
+			case msg := <-result:
+				if _, ok := msg.(refreshMsg); !ok {
+					t.Fatalf("session close produced %T, want refreshMsg", msg)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("closing a session did not wake other sidebars")
+			}
+		})
+	}
+}
+
 func waitForExit(pids []string, timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	for _, s := range pids {
