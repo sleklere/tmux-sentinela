@@ -26,12 +26,6 @@ export default function (pi: ExtensionAPI) {
   let sequence = 0;
   let writes = Promise.resolve();
   let disposed = false;
-  let settleTimer: ReturnType<typeof setTimeout> | undefined;
-
-  const cancelSettle = () => {
-    if (settleTimer) clearTimeout(settleTimer);
-    settleTimer = undefined;
-  };
 
   const fallbackName = () => basename(cwd) || "Pi";
   const status = () => promptActive ? "blocked" : agentRunning || autoCompacting ? "busy" : "idle";
@@ -65,14 +59,12 @@ export default function (pi: ExtensionAPI) {
   // Reload/new/resume/fork keep this process: the next instance overwrites the
   // file, so removing it would drop the agent (and the sidebar cursor) for a poll.
   const cleanup = async (event: { reason: string }) => {
-    cancelSettle();
     disposed = true;
     await writes;
     if (event.reason === "quit") await unlink(file).catch(() => {});
   };
 
   pi.on("session_start", async (_event, ctx) => {
-    cancelSettle();
     cwd = ctx.cwd;
     name = pi.getSessionName() || fallbackName();
     agentRunning = false;
@@ -100,23 +92,15 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("agent_start", async () => {
-    cancelSettle();
     agentRunning = true;
     autoCompacting = false;
     await write();
   });
 
-  pi.on("agent_settled", () => {
-    // A new run may start shortly after settlement (queued work or an async
-    // wake-up). Do not announce completion during that brief handoff.
-    cancelSettle();
-    settleTimer = setTimeout(() => {
-      settleTimer = undefined;
-      agentRunning = false;
-      autoCompacting = false;
-      void write();
-    }, 3000);
-    settleTimer.unref();
+  pi.on("agent_settled", async () => {
+    agentRunning = false;
+    autoCompacting = false;
+    await write();
   });
 
   pi.on("ui_prompt_start", async () => {
