@@ -112,7 +112,7 @@ func newModel(bin string) model {
 	binStat, _ := os.Stat(bin)
 	return model{bin: bin, self: selfPane(), th: loadTheme(o), notify: o["@sentinela_notify"],
 		notifyDone: o["@sentinela_notify_done"], sound: o["@sentinela_sound"],
-		seen: map[string]time.Time{}, started: now, requestedSequence: 1, polling: true,
+		seen: map[string]time.Time{}, started: now, frame: pulseTick(now), requestedSequence: 1, polling: true,
 		lastPollRequested: now, binStat: binStat}
 }
 
@@ -191,6 +191,12 @@ func (m *model) requestPoll(at time.Time) tea.Cmd {
 	return m.beginPoll()
 }
 
+// Use wall-clock phase so every sidebar displays the same pulse even if it
+// started later or missed timer ticks.
+func pulseTick(at time.Time) int {
+	return int((at.UnixNano() / int64(tickInterval)) % (busyCycleFrames * ticksPerPulse))
+}
+
 func tick() tea.Cmd {
 	return tea.Tick(tickInterval, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
@@ -204,7 +210,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case tickMsg:
-		m.frame++
+		m.frame = pulseTick(time.Time(msg))
 		if at := time.Time(msg); at.Sub(m.lastPollRequested) >= fallbackInterval {
 			if m.rebuilt() {
 				m.restart = true

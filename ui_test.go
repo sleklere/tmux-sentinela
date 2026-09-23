@@ -51,6 +51,26 @@ func TestBusyPulseChangesOnRefresh(t *testing.T) {
 	}
 }
 
+func TestBusyPulseIsSynchronizedAcrossSidebars(t *testing.T) {
+	first, second := testModel(), testModel()
+	agent := Agent{Status: Busy}
+	at := time.Unix(1000, 0)
+	// Sidebars started and received ticks at different times.
+	first.frame = pulseTick(at.Add(-3 * time.Second))
+	second.frame = pulseTick(at.Add(-time.Second))
+	for _, instant := range []time.Time{at, at.Add(270 * time.Millisecond), at.Add(2 * time.Second)} {
+		updated, _ := first.Update(tickMsg(instant))
+		first = updated.(model)
+		updated, _ = second.Update(tickMsg(instant))
+		second = updated.(model)
+		_, left := first.glyph(agent)
+		_, right := second.glyph(agent)
+		if left != right {
+			t.Fatalf("pulse at %v differs between sidebars: %q, %q", instant, left, right)
+		}
+	}
+}
+
 func TestBusyPulseFollowsTheme(t *testing.T) {
 	yellow := loadTheme(map[string]string{"@th_accent3": "#eed49f"})
 	teal := loadTheme(map[string]string{"@th_accent3": "#8bd5ca"})
