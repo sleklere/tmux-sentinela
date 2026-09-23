@@ -21,13 +21,14 @@ export default function (pi: ExtensionAPI) {
   let cwd = "";
   let name = "";
   let agentRunning = false;
+  let autoCompacting = false;
   let promptActive = false;
   let sequence = 0;
   let writes = Promise.resolve();
   let disposed = false;
 
   const fallbackName = () => basename(cwd) || "Pi";
-  const status = () => promptActive ? "blocked" : agentRunning ? "busy" : "idle";
+  const status = () => promptActive ? "blocked" : agentRunning || autoCompacting ? "busy" : "idle";
 
   const write = async () => {
     if (disposed) return;
@@ -67,6 +68,7 @@ export default function (pi: ExtensionAPI) {
     cwd = ctx.cwd;
     name = pi.getSessionName() || fallbackName();
     agentRunning = false;
+    autoCompacting = false;
     promptActive = false;
     await write();
   });
@@ -76,13 +78,28 @@ export default function (pi: ExtensionAPI) {
     await write();
   });
 
+  // Pi can compact before agent_start when a new prompt arrives. Keep the
+  // sidebar busy until that prompt starts, even though the previous run settled.
+  pi.on("session_before_compact", async (event) => {
+    if (event.reason === "manual") return;
+    autoCompacting = true;
+    await write();
+  });
+
+  pi.on("session_compact_failed", async () => {
+    autoCompacting = false;
+    await write();
+  });
+
   pi.on("agent_start", async () => {
     agentRunning = true;
+    autoCompacting = false;
     await write();
   });
 
   pi.on("agent_settled", async () => {
     agentRunning = false;
+    autoCompacting = false;
     await write();
   });
 
