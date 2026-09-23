@@ -34,7 +34,13 @@ test("Pi stays busy during automatic compaction before and within a run", async 
     await emit("session_before_compact", { reason: "overflow" });
     assert.equal((await state()).status, "busy");
     await emit("agent_settled");
-    assert.equal((await state()).status, "idle");
+    assert.equal((await state()).status, "busy", "settlement must not announce completion immediately");
+    await emit("agent_start");
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+    assert.equal((await state()).status, "busy", "a resumed run cancels pending completion");
+    await emit("agent_settled");
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+    assert.equal((await state()).status, "idle", "a truly settled run becomes idle");
 
     await emit("session_before_compact", { reason: "threshold" });
     await emit("session_compact_failed", { reason: "threshold" });
