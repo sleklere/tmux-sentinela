@@ -235,7 +235,7 @@ func TestCursorVisibility(t *testing.T) {
 		want   int
 	}{
 		{"empty window", "@empty", false, -1},
-		{"agent window", "@agent", false, 0},
+		{"inactive agent window without focused agent", "@agent", false, -1},
 		{"focused empty sidebar", "@empty", true, 0},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -314,9 +314,55 @@ func TestPollFollowsActivePaneBeforeCurrentWindow(t *testing.T) {
 	}
 	agents[0].Pane.Current = true
 	agents[1].Pane.Current, agents[1].Pane.Visible = false, false
-	m.applyPoll(pollMsg{agents: agents, window: "@agent"})
+	m.applyPoll(pollMsg{agents: agents, window: "@agent", sidebarFocused: true})
 	if m.focused != "claude:100" {
 		t.Fatal("did not fall back to the agent in the current window")
+	}
+}
+
+func TestCursorDoesNotFlashLastAgentAfterPlainWindow(t *testing.T) {
+	isolateState(t)
+	m := testModel()
+	m.window = "@pstack"
+	agents := []Agent{
+		{Key: "pi:old", Pane: Pane{WindowID: "@old", Current: true, Visible: true}},
+		{Key: "claude:pstack", Pane: Pane{WindowID: "@pstack"}},
+	}
+	m.applyPoll(pollMsg{agents: agents, window: "@pstack"})
+	if m.cursor != 0 {
+		t.Fatalf("initial cursor = %d, want last focused agent", m.cursor)
+	}
+	// The client moves to btop; this sidebar belongs to pstack and stays open.
+	agents[0].Pane.Current, agents[0].Pane.Visible = false, false
+	m.applyPoll(pollMsg{agents: agents, window: "@pstack"})
+	if m.cursor != -1 {
+		t.Fatalf("btop left the cursor on the previous agent: %d", m.cursor)
+	}
+	// The client returns to the agent window by normal tmux navigation.
+	agents[1].Pane.Current, agents[1].Pane.Visible = true, true
+	m.applyPoll(pollMsg{agents: agents, window: "@pstack"})
+	if m.cursor != 1 {
+		t.Fatalf("cursor after entering pstack = %d, want 1", m.cursor)
+	}
+}
+
+func TestPollDoesNotFollowAgentInWindowWhenPlainPaneIsActive(t *testing.T) {
+	isolateState(t)
+	m := testModel()
+	m.window = "@work"
+	agents := []Agent{
+		{Key: "claude:100", Pane: Pane{WindowID: "@work", Current: true}},
+		{Key: "opencode:200", Pane: Pane{WindowID: "@other"}},
+	}
+	m.applyPoll(pollMsg{agents: agents, window: "@work", sel: "opencode:200"})
+	if m.cursor != -1 {
+		t.Fatal("plain pane left a cursor on an unfocused agent")
+	}
+	agents[0].Pane.Current = false
+	agents[1].Pane.Current, agents[1].Pane.Visible = true, true
+	m.applyPoll(pollMsg{agents: agents, window: "@work", sel: "opencode:200"})
+	if m.cursor != 1 {
+		t.Fatal("cursor did not stay on the destination agent")
 	}
 }
 
@@ -400,16 +446,16 @@ func TestPollKeepsSelectionAcrossReorderAndRemoval(t *testing.T) {
 	m := testModel()
 	a := Agent{Key: "claude:100", Pane: Pane{WindowID: "@agent"}}
 	b := Agent{Key: "opencode:200", Pane: Pane{WindowID: "@agent"}}
-	m.applyPoll(pollMsg{agents: []Agent{a, b}, window: "@agent", sel: b.Key})
+	m.applyPoll(pollMsg{agents: []Agent{a, b}, window: "@agent", active: true, sel: b.Key})
 	if m.cursor != 1 {
 		t.Fatal("second agent was not selected")
 	}
-	m.applyPoll(pollMsg{agents: []Agent{b, a}, window: "@agent", sel: b.Key})
+	m.applyPoll(pollMsg{agents: []Agent{b, a}, window: "@agent", active: true, sel: b.Key})
 	if m.cursor != 0 {
 		t.Fatal("selection followed the index instead of the agent")
 	}
 	m.moveCursor(1)
-	m.applyPoll(pollMsg{agents: []Agent{b}, window: "@agent", sel: a.Key})
+	m.applyPoll(pollMsg{agents: []Agent{b}, window: "@agent", active: true, sel: a.Key})
 	if m.cursor != 0 {
 		t.Fatalf("cursor after selected agent removal = %d, want 0", m.cursor)
 	}

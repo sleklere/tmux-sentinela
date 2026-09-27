@@ -63,14 +63,15 @@ const fallbackInterval = 2 * time.Second
 const rowHeight = 2 // name line + detail line
 
 type pollMsg struct {
-	sequence uint64
-	agents   []Agent
-	layout   sidebarLayout
-	leader   bool   // this sidebar is the first one in tmux order: it notifies
-	active   bool   // this sidebar pane has focus
-	window   string // window containing this sidebar
-	sel      string // key of the agent selected from any sidebar
-	err      error
+	sequence       uint64
+	agents         []Agent
+	layout         sidebarLayout
+	leader         bool   // this sidebar is the first one in tmux order: it notifies
+	active         bool   // this sidebar pane has focus
+	sidebarFocused bool   // an attached client's active pane is a sidebar
+	window         string // window containing this sidebar
+	sel            string // key of the agent selected from any sidebar
+	err            error
 }
 type tickMsg time.Time
 
@@ -94,6 +95,7 @@ type model struct {
 	selection         string            // last shared selection observed
 	window            string            // window containing this sidebar
 	active            bool              // this sidebar pane has focus
+	sidebarFocused    bool              // an attached client's active pane is a sidebar
 	layout            sidebarLayout
 	requestedSequence uint64
 	appliedSequence   uint64
@@ -143,8 +145,11 @@ func (m model) poll(sequence uint64) tea.Msg {
 		return pollMsg{sequence: sequence, err: err}
 	}
 	// Only one sidebar announces, so N windows do not mean N notifications.
-	firstSidebar, window, active := "", "", false
+	firstSidebar, window, active, sidebarFocused := "", "", false, false
 	for _, p := range panes {
+		if p.Sidebar && p.Visible {
+			sidebarFocused = true
+		}
 		if p.Sidebar && firstSidebar == "" {
 			firstSidebar = p.ID
 		}
@@ -161,7 +166,7 @@ func (m model) poll(sequence uint64) tea.Msg {
 		panes = layout.panes
 	}
 	return pollMsg{sequence: sequence, agents: collectPanes(panes), leader: leader,
-		active: active, window: window, sel: readSelection(), layout: layout}
+		active: active, sidebarFocused: sidebarFocused, window: window, sel: readSelection(), layout: layout}
 }
 
 func (m model) pollCommand(sequence uint64) tea.Cmd {
@@ -280,7 +285,7 @@ func (m *model) applyPoll(msg pollMsg) {
 	trackScreenStatusTimes(msg.agents, m.agents, m.started, now)
 	m.agents = msg.agents
 	m.selectKey(cursorKey)
-	m.window, m.active = msg.window, msg.active
+	m.window, m.active, m.sidebarFocused = msg.window, msg.active, msg.sidebarFocused
 	m.layout = msg.layout
 	prev := make(map[string]Status, len(m.agents))
 	for _, a := range m.agents {
@@ -391,6 +396,13 @@ func (m *model) syncCursor(selected string) {
 		return
 	}
 	focusChanged := m.followFocus()
+	if m.focused == "" && !m.sidebarFocused && !m.active {
+		// No agent is in focus. Clear the bar in inactive sidebars so a
+		// later window switch cannot briefly show the previous agent.
+		m.cursor = -1
+		m.selection = selected
+		return
+	}
 	if selected != m.selection {
 		m.selection = selected
 		if focusChanged {
@@ -413,8 +425,8 @@ func (m *model) selectKey(key string) {
 }
 
 // followFocus selects the agent of the active window when that agent changes,
-// and reports whether it did; j/k keep working while focus is still. The active
-// pane wins over other agents in the window (the sidebar itself may hold focus).
+// and reports whether it did; j/k keep working while focus is still. An
+// agent in the current window counts only when a sidebar holds the focus.
 func (m *model) followFocus() bool {
 	focused := ""
 	for _, a := range m.agents {
@@ -422,7 +434,7 @@ func (m *model) followFocus() bool {
 			focused = a.Key
 			break
 		}
-		if a.Pane.Current && focused == "" {
+		if m.sidebarFocused && a.Pane.Current && focused == "" {
 			focused = a.Key
 		}
 	}
