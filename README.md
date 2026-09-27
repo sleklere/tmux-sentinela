@@ -25,7 +25,9 @@ how long.
 
 tmux ≥ 3.2, `ps`, and `curl` or `wget`. Go is optional: when available, the
 plugin builds from source; otherwise it downloads a verified release binary.
-Developed on Linux; macOS should work but is untested.
+Developed on Linux; macOS should work but is untested. CI tests the tmux
+versions available from its Linux and macOS package managers; it does not
+currently exercise the 3.2 minimum.
 
 ## Install
 
@@ -77,6 +79,7 @@ session, after installing or updating Sentinela.
 | Key | Action |
 |---|---|
 | `prefix + a` | toggle the sidebar of the current window |
+| `prefix + Space` | cycle layouts while keeping the sidebar on the left |
 | `j` / `k`, `↑` / `↓` | move the cursor (inside the sidebar) |
 | `Enter`, `l`, click | jump to the agent's pane |
 | `q` | close the sidebar |
@@ -93,9 +96,16 @@ Focusing the sidebar does not name the window after the plugin: automatic
 renaming uses the last work pane and preserves your rename format. Manually
 named windows keep their names.
 
-Resizing a sidebar shares its width with the others within about two seconds and
-updates `@sentinela_width` for new windows. Zoom and terminal-size changes do
-not replace the shared width; small windows use as much of it as fits.
+By default, layout changes keep the sidebar at the full-height left edge,
+including layouts selected outside the keybinding. Set `@sentinela_lock_sidebar`
+to `off` to let tmux rearrange it like any other pane. The keybinding and
+`select-layout` restore the shared width; other tmux layout commands can change
+it if they leave the sidebar on the left. The sidebar uses at most half the
+window width. Resizing a sidebar with tmux's `resize-pane` (including mouse
+resizing) shares its width with the others within about two seconds and updates
+`@sentinela_width` for new windows. When a window is too narrow, the configured
+width is kept so the sidebar can grow back. Zoom
+and terminal-size changes do not replace the shared width.
 
 When an agent turns blocked in a pane you are not looking at, a message shows
 on every attached client (see `@sentinela_notify` for desktop notifications).
@@ -112,8 +122,9 @@ would without the plugin.
 | Option | Default | |
 |---|---|---|
 | `@sentinela_key` | `a` | toggle key |
-| `@sentinela_width` | `32` | width in columns |
+| `@sentinela_width` | `32` | preferred width in columns, capped at half of each window |
 | `@sentinela_autocreate` | `on` | open in new windows |
+| `@sentinela_lock_sidebar` | `on` | keep the sidebar full-height on the left after layout changes; `off` restores tmux's normal layout cycling |
 | `@sentinela_notify` | `tmux` | on blocked: `tmux` (display-message), `desktop` (system notification), `both`, `off` |
 | `@sentinela_notify_done` | `off` | on background completion: `tmux`, `desktop`, `both`, `off` |
 | `@sentinela_sound` | `off` | on completion: `on` (embedded sound), `off` |
@@ -178,7 +189,9 @@ and plugin events still refresh immediately.
 
 ## Binary commands
 
-`sidebar` (TUI), `ensure`, `toggle`, `prune`, `refresh`, `status`, `claude-hook`.
+`sidebar` (TUI), `ensure`, `toggle`, `next-layout`, `pin`, `pin-layout`,
+`sidebar-resized` (internal resize hook), `prune`, `refresh`, `status`,
+`claude-hook`.
 
 ## Tests and CI
 
