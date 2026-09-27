@@ -25,6 +25,7 @@ fi
 
 key=$(tmux show-option -gqv @sentinela_key); key=${key:-a}
 tmux bind-key "$key" run-shell "'$BIN' toggle '#{window_id}'"
+tmux bind-key Space run-shell "'$BIN' next-layout '#{window_id}'"
 
 # Keep window/session changes from restoring focus to a sidebar. Direct pane
 # navigation and clicks may still focus it so its keyboard controls work.
@@ -33,6 +34,9 @@ tmux set-hook -gu 'after-select-pane[40]'
 tmux set-hook -g 'after-select-window[40]' "$focus_guard"
 tmux set-hook -g 'client-session-changed[40]' "$focus_guard"
 
+tmux set-hook -g 'window-layout-changed[50]' "run-shell -b \"'$BIN' pin '#{window_id}'\""
+tmux set-hook -g 'after-select-layout[50]' "run-shell -b \"'$BIN' pin-layout '#{window_id}'\""
+tmux set-hook -g 'after-resize-pane[50]' "run-shell \"'$BIN' sidebar-resized '#{pane_id}' '#{pane_width}' '#{window_width}' '#{@sentinela_sidebar}' '#{@sentinela_internal_resize}' '#{window_zoomed_flag}'\""
 tmux set-hook -g 'after-new-window[50]'  "run-shell -b \"'$BIN' ensure\""
 tmux set-hook -g 'after-new-session[50]' "run-shell -b \"'$BIN' ensure\""
 tmux set-hook -gw 'pane-exited[50]'      "run-shell -b \"'$BIN' prune\""

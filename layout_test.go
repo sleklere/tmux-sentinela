@@ -19,10 +19,13 @@ func TestPlanSidebarWidths(t *testing.T) {
 		resizes    []paneResize
 	}{
 		{"unchanged", []Pane{a, b}, []Pane{a, b}, 32, 32, 32, nil},
-		{"drag in another tab", []Pane{a, b}, []Pane{a, resized(b, 40)}, 32, 32, 40, []paneResize{{a.ID, 40}}},
+		{"layout drift is not a manual resize", []Pane{a, b}, []Pane{a, resized(b, 40)}, 32, 32, 32, []paneResize{{b.ID, 32}}},
+		{"oversized layout drift is capped", []Pane{a, b}, []Pane{a, resized(b, 90)}, 32, 32, 32, []paneResize{{b.ID, 32}}},
+		{"configured width capped without losing preference", []Pane{resized(a, 100)}, []Pane{resized(a, 100)}, 100, 100, 100, []paneResize{{a.ID, 80}}},
 		{"new sidebar", []Pane{a}, []Pane{a, resized(b, 40)}, 32, 32, 32, []paneResize{{b.ID, 32}}},
 		{"new leader", nil, []Pane{a, resized(b, 40)}, 0, 32, 32, []paneResize{{b.ID, 32}}},
 		{"explicit option wins", []Pane{a, b}, []Pane{a, resized(b, 40)}, 32, 48, 48, []paneResize{{a.ID, 48}, {b.ID, 48}}},
+		{"resize hook publishes shared width", []Pane{a, b}, []Pane{a, resized(b, 40)}, 32, 40, 40, []paneResize{{a.ID, 40}}},
 		{"terminal resized", []Pane{a, b}, []Pane{a, {ID: b.ID, Sidebar: true, Width: 20, WindowWidth: 100}}, 32, 32, 32, []paneResize{{b.ID, 32}}},
 		{"zoom", []Pane{a, b}, []Pane{a, {ID: b.ID, Sidebar: true, Width: 160, WindowWidth: 160, Zoomed: true}}, 32, 32, 32, nil},
 		{"unzoom", []Pane{{ID: a.ID, Sidebar: true, Width: 160, WindowWidth: 160, Zoomed: true}}, []Pane{resized(a, 40)}, 32, 32, 32, []paneResize{{a.ID, 32}}},
@@ -40,13 +43,82 @@ func TestPlanSidebarWidths(t *testing.T) {
 	}
 }
 
+func TestSidebarWidthLimit(t *testing.T) {
+	for _, tc := range []struct{ requested, window, want int }{
+		{32, 160, 32}, {120, 160, 80}, {120, 143, 71}, {120, 1, 1},
+	} {
+		if got := sidebarWidth(tc.requested, tc.window); got != tc.want {
+			t.Errorf("sidebarWidth(%d, %d) = %d, want %d", tc.requested, tc.window, got, tc.want)
+		}
+	}
+}
+
 func resized(p Pane, width int) Pane {
 	p.Width = width
 	return p
 }
 
+func TestLayoutDoesNotPublishSidebarWidth(t *testing.T) {
+	run := isolatedTmux(t)
+	run("set-option", "-g", "@sentinela_autocreate", "off")
+	loadPlugin(t)
+	sidebar := run("split-window", "-hbdf", "-l", "32", "-t", "@0", "-P", "-F", "#{pane_id}", "sleep 300")
+	run("set-option", "-p", "-t", sidebar, "@sentinela_sidebar", "1")
+	m := testModel()
+	m.self = sidebar
+	poll := func() {
+		t.Helper()
+		msg := m.poll(0).(pollMsg)
+		if msg.err != nil {
+			t.Fatal(msg.err)
+		}
+		m.applyPoll(msg)
+	}
+	poll()
+	// Force the precise race: polling observes the rearranged window before
+	// the asynchronous layout repair gets a chance to run.
+	run("set-hook", "-gu", "window-layout-changed[50]")
+	run("next-layout", "-t", "@0")
+	if got := run("display-message", "-p", "-t", sidebar, "#{pane_width}"); got == "32" {
+		t.Fatal("layout did not resize the sidebar; race not reproduced")
+	}
+	poll()
+	if got := run("show-option", "-gqv", "@sentinela_width"); got != "" && got != "32" {
+		t.Fatalf("layout width leaked into shared preference: %s", got)
+	}
+}
+
+func TestSidebarWidthSyncCapsManualResize(t *testing.T) {
+	run := isolatedTmux(t)
+	run("set-option", "-g", "@sentinela_autocreate", "off")
+	loadPlugin(t)
+	sidebar := run("split-window", "-hbdf", "-l", "32", "-t", "@0", "-P", "-F", "#{pane_id}", "sleep 300")
+	run("set-option", "-p", "-t", sidebar, "@sentinela_sidebar", "1")
+	m := testModel()
+	m.self = sidebar
+	poll := func() {
+		t.Helper()
+		msg := m.poll(0).(pollMsg)
+		if msg.err != nil {
+			t.Fatal(msg.err)
+		}
+		m.applyPoll(msg)
+	}
+	poll()
+	run("resize-pane", "-t", sidebar, "-x", "100")
+	poll()
+	if got := run("display-message", "-p", "-t", sidebar, "#{pane_width}"); got != "80" {
+		t.Fatalf("resized sidebar width = %s, want 80", got)
+	}
+	if got := run("show-option", "-gqv", "@sentinela_width"); got != "80" {
+		t.Fatalf("shared width = %s, want 80", got)
+	}
+}
+
 func TestSidebarWidthSyncAcrossWindows(t *testing.T) {
 	run := isolatedTmux(t)
+	run("set-option", "-g", "@sentinela_autocreate", "off")
+	loadPlugin(t)
 	addSidebar := func(window string) string {
 		id := run("split-window", "-hbdf", "-t", window, "-l", "32", "-P", "-F", "#{pane_id}", "sleep 300")
 		run("set-option", "-p", "-t", id, "@sentinela_sidebar", "1")
@@ -107,8 +179,9 @@ func TestSidebarWidthSyncAcrossWindows(t *testing.T) {
 	run("resize-window", "-t", window, "-x", "160", "-y", "40")
 	poll()
 	assertWidth(c, "36")
-	// Closing the last work pane briefly leaves its sidebar filling the window
-	// until the prune hook runs. That expansion must not become the shared width.
+	// Observe the transient orphan before the prune hook closes it.
+	run("set-hook", "-gu", "after-kill-pane[50]")
+	run("set-hook", "-gwu", "pane-exited[50]")
 	run("kill-pane", "-t", "%0")
 	poll()
 	assertWidth(c, "36")

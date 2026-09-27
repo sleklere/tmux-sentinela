@@ -12,6 +12,10 @@ const usage = `usage: tmux-sentinela <command>
   sidebar      run the sidebar TUI (used inside the sidebar pane)
   ensure       open a sidebar in every window that has none
   toggle [@id] open/close the sidebar of a window (default: current)
+  next-layout [@id] cycle layouts while keeping the sidebar on the left
+  pin [@id]     restore the sidebar after an external layout change
+  pin-layout [@id] restore position and width after selecting a layout
+  sidebar-resized <pane> <width> <window-width> record a manual width change
   prune        close sidebars left alone in their window
   refresh      wake sidebars after a state or focus change
   status       print every pane and detected agent (debug / scripting)
@@ -32,6 +36,14 @@ func main() {
 		err = ensureSidebars(bin)
 	case "toggle":
 		err = toggleSidebar(bin, arg(2))
+	case "next-layout":
+		err = pinSidebar(arg(2), true, false)
+	case "pin":
+		err = pinSidebar(arg(2), false, false)
+	case "pin-layout":
+		err = pinSidebar(arg(2), false, true)
+	case "sidebar-resized":
+		err = sidebarResized(arg(2), arg(3), arg(4), arg(5), arg(6), arg(7))
 	case "prune":
 		err = pruneSidebars()
 	case "refresh":
