@@ -248,7 +248,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		press := msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft
 		release := msg.Action == tea.MouseActionRelease
 		if press || release {
-			if i := (msg.Y - 2) / rowHeight; i >= 0 && i < len(m.agents) && msg.Y >= 2 {
+			if i := agentAtRow(sessionGroups(m.agents), msg.Y); i >= 0 {
 				m.moveCursor(i)
 				jumpTo(m.agents[i].Pane.ID)
 			}
@@ -512,6 +512,63 @@ func pulseVariant(base lipgloss.Color) lipgloss.Color {
 	return lipgloss.Color(colorful.Hsl(math.Mod(h+340, 360), min(1, s+0.12), max(0, l-0.08)).Hex())
 }
 
+type sessionGroup struct {
+	name   string
+	agents []int // indices into model.agents; cursor and selection remain agent-based
+}
+
+// sessionGroups preserves tmux's first-seen session order and pane order within it.
+func sessionGroups(agents []Agent) []sessionGroup {
+	var groups []sessionGroup
+	byName := make(map[string]int)
+	for i, agent := range agents {
+		name := agent.Pane.Session
+		group, ok := byName[name]
+		if !ok {
+			group = len(groups)
+			byName[name] = group
+			groups = append(groups, sessionGroup{name: name})
+		}
+		groups[group].agents = append(groups[group].agents, i)
+	}
+	return groups
+}
+
+// agentAtRow ignores the title, session headers and gaps between groups.
+func agentAtRow(groups []sessionGroup, row int) int {
+	line := 2
+	for groupIndex, group := range groups {
+		if groupIndex > 0 {
+			line++ // blank line between sessions
+		}
+		line++ // session header
+		for _, agentIndex := range group.agents {
+			if row >= line && row < line+rowHeight {
+				return agentIndex
+			}
+			line += rowHeight
+		}
+	}
+	return -1
+}
+
+func sessionHeader(name string, width int, th theme) string {
+	if width < 4 {
+		return lipgloss.NewStyle().Foreground(th.title).Render(strings.Repeat("─", max(0, width)))
+	}
+	if name == "" {
+		name = "?"
+	}
+	label := []rune(" " + truncate(name, width-6))
+	for lipgloss.Width(string(label)) > max(1, width-4) {
+		label = label[:len(label)-1]
+	}
+	rightGap := min(2, width-lipgloss.Width(string(label))-2)
+	divider := strings.Repeat("─", width-lipgloss.Width(string(label))-2-rightGap)
+	return lipgloss.NewStyle().Foreground(th.title).Bold(true).Render(string(label)+"  "+divider) +
+		strings.Repeat(" ", rightGap)
+}
+
 func (m model) View() string {
 	if m.width == 0 {
 		return ""
@@ -535,36 +592,47 @@ func (m model) View() string {
 		return b.String()
 	}
 
-	for i, a := range m.agents {
-		// Every segment carries the row background: an inner reset would
-		// otherwise cut the tint short. Other rows keep the pane transparent.
-		row := lipgloss.NewStyle()
-		if a.Status == Blocked {
-			row = row.Background(m.th.blockedBg)
+	for groupIndex, group := range sessionGroups(m.agents) {
+		if groupIndex > 0 {
+			b.WriteByte('\n')
 		}
-		g, c := m.glyph(a)
-		nameStyle := row.Foreground(m.th.text)
-		if m.done(a) || a.Status == Blocked {
-			nameStyle = nameStyle.Bold(true)
-		}
-		edge := row.Render(" ")
-		if i == m.cursor {
-			edge = row.Foreground(m.th.accent).Render("▌")
-		}
-		line1 := edge + row.Render(" ") + row.Foreground(c).Render(g) + row.Render(" ") +
-			nameStyle.Render(truncate(a.Name, w-5))
-		detail := a.Kind + "  " + fmt.Sprintf("%s:%d", a.Pane.Session, a.Pane.WindowIndex)
-		if a.Status != Idle { // how long it has been working / waiting
-			if d := since(a.Since); d != "" {
-				detail += "  " + d
+		b.WriteString(sessionHeader(group.name, w, m.th) + "\n")
+		for _, i := range group.agents {
+			a := m.agents[i]
+			// Every segment carries the row background: an inner reset would
+			// otherwise cut the tint short. Other rows keep the pane transparent.
+			row := lipgloss.NewStyle()
+			if a.Status == Blocked {
+				row = row.Background(m.th.blockedBg)
 			}
+			g, c := m.glyph(a)
+			nameStyle := row.Foreground(m.th.text)
+			if m.done(a) || a.Status == Blocked {
+				nameStyle = nameStyle.Bold(true)
+			}
+			edge := row.Render(" ")
+			if i == m.cursor {
+				edge = row.Foreground(m.th.accent).Render("▌")
+			}
+			line1 := edge + row.Render(" ") + row.Foreground(c).Render(g) + row.Render(" ") +
+				nameStyle.Render(truncate(a.Name, w-5))
+			window := a.Pane.WindowName
+			if window == "" {
+				window = strconv.Itoa(a.Pane.WindowIndex)
+			}
+			detail := a.Kind + "  " + window
+			if a.Status != Idle { // how long it has been working / waiting
+				if d := since(a.Since); d != "" {
+					detail += "  " + d
+				}
+			}
+			line2 := edge + row.Render("   ") + row.Foreground(m.th.muted).Render(truncate(detail, w-5))
+			if a.Status == Blocked {
+				line1 = fillRow(line1, row, w)
+				line2 = fillRow(line2, row, w)
+			}
+			b.WriteString(line1 + "\n" + line2 + "\n")
 		}
-		line2 := edge + row.Render("   ") + row.Foreground(m.th.muted).Render(truncate(detail, w-5))
-		if a.Status == Blocked {
-			line1 = fillRow(line1, row, w)
-			line2 = fillRow(line2, row, w)
-		}
-		b.WriteString(line1 + "\n" + line2 + "\n")
 	}
 	return b.String()
 }

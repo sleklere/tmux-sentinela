@@ -486,20 +486,74 @@ func TestViewAgentRows(t *testing.T) {
 	m.cursor = 1
 	m.agents = []Agent{
 		{Key: "claude:100", Kind: "claude", Name: "done", Status: Idle,
-			Since: m.started, Pane: Pane{Session: "work", WindowIndex: 1}},
+			Since: m.started, Pane: Pane{Session: "work", WindowIndex: 1, WindowName: "api"}},
 		{Key: "opencode:200", Kind: "opencode", Name: "blocked", Status: Blocked,
-			Pane: Pane{Session: "code", WindowIndex: 2}},
+			Pane: Pane{Session: "code", WindowIndex: 2, WindowName: "login"}},
 	}
 	m.seen["claude:100"] = m.started.Add(-time.Minute)
 
 	plain := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(m.View(), "")
 	want := " agents 1\n\n" +
+		" work  " + strings.Repeat("─", 23) + "  \n" +
 		"  ✓ done\n" +
-		"    claude  work:1\n" +
+		"    claude  api\n\n" +
+		" code  " + strings.Repeat("─", 23) + "  \n" +
 		"▌ ● blocked" + strings.Repeat(" ", 21) + "\n" +
-		"▌   opencode  code:2" + strings.Repeat(" ", 12) + "\n"
+		"▌   opencode  login" + strings.Repeat(" ", 13) + "\n"
 	if plain != want {
 		t.Fatalf("view =\n%q\nwant =\n%q", plain, want)
+	}
+}
+
+func TestWindowNameFallsBackToIndex(t *testing.T) {
+	m := testModel()
+	m.agents = []Agent{{Kind: "pi", Name: "agent", Pane: Pane{Session: "work", WindowIndex: 7}}}
+	plain := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(m.View(), "")
+	if !strings.Contains(plain, "▌   pi  7\n") {
+		t.Fatalf("empty window name did not fall back to index: %q", plain)
+	}
+}
+
+func TestSessionHeaderKeepsCaseAndColor(t *testing.T) {
+	th := loadTheme(map[string]string{"@sentinela_color_title": "#aabbcc", "@sentinela_color_muted": "#112233"})
+	want := lipgloss.NewStyle().Foreground(th.title).Bold(true).Render(" MiXeD  "+strings.Repeat("─", 10)) + "  "
+	if got := sessionHeader("MiXeD", 20, th); got != want {
+		t.Fatalf("header = %q, want %q", got, want)
+	}
+}
+
+func TestSessionGroupsAndMouseRows(t *testing.T) {
+	agents := []Agent{
+		{Pane: Pane{Session: "code"}},
+		{Pane: Pane{Session: "general"}},
+		{Pane: Pane{Session: "code"}},
+	}
+	groups := sessionGroups(agents)
+	if len(groups) != 2 || groups[0].name != "code" || groups[1].name != "general" ||
+		len(groups[0].agents) != 2 || groups[0].agents[0] != 0 || groups[0].agents[1] != 2 {
+		t.Fatalf("groups = %+v", groups)
+	}
+	for _, tt := range []struct{ row, want int }{
+		{0, -1}, {1, -1}, {2, -1}, // title and first header
+		{3, 0}, {4, 0}, {5, 2}, {6, 2},
+		{7, -1}, {8, -1}, // gap and second header
+		{9, 1}, {10, 1}, {11, -1},
+	} {
+		if got := agentAtRow(groups, tt.row); got != tt.want {
+			t.Errorf("row %d = agent %d, want %d", tt.row, got, tt.want)
+		}
+	}
+}
+
+func TestSessionHeaderWidth(t *testing.T) {
+	th := loadTheme(nil)
+	for _, name := range []string{"a-long-session-name", "sesión-東京"} {
+		for _, width := range []int{1, 3, 4, 12, 32} {
+			header := sessionHeader(name, width, th)
+			if got := lipgloss.Width(header); got != width {
+				t.Errorf("header %q width at %d = %d", name, width, got)
+			}
+		}
 	}
 }
 

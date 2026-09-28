@@ -8,18 +8,22 @@ running in any session, with its state, and jumps to its pane.
 ```
  agents 1
 
+ work  ──────────────────
 ▌ ● api-refactor            ← blocked: waiting for permission / an answer
-▌   claude  work:1  2m
+▌   claude  api  2m
   ● fix-login               ← busy: yellow-orange pulse
-    claude  work:2
+    claude  login
+
+ home  ──────────────────
   ✓ docs                    ← done: finished and you have not looked yet
-    opencode  home:0
+    opencode  docs
   ○ scratch                 ← idle
-    claude  home:1
+    claude  scratch
 ```
 
-`▌` is the cursor (Enter jumps to the pane). Busy and blocked rows show for
-how long.
+Session headers group agents across all tmux sessions. Each agent shows its
+tmux window name. `▌` is the cursor (Enter jumps to the pane). Busy and blocked
+rows show for how long.
 
 ## Requirements
 
