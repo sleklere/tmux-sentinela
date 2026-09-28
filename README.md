@@ -188,12 +188,13 @@ query individual agents in parallel over the same master, avoiding the sshd
 `MaxSessions` exhaustion caused by large SSH fanouts.
 
 Jumping to a remote agent opens a local tmux window with an SSH tmux client,
-selecting the remote pane before attach. Later jumps reuse that client while
-its local pane still runs `ssh`. For reuse, Sentinela marks the local attach
-pane with its host and remote session; an unmarked SSH pane cannot be mapped
-reliably to a remote tmux `client_tty` from the local tmux metadata alone and
-gets a new attach window. The remote `list-clients` TTY identifies the client
-on the remote machine, but contains no local pane ID. An offline cached row
+selecting the remote pane before attach. Sentinela marks the local pane with a
+random token and records its SSH PTY under that token in the remote tmux server.
+On later jumps it checks `list-clients` for that PTY in the target session,
+selects the window for that specific client and then selects the pane. If the
+mapping is missing or ambiguous, it opens another attach window rather than
+moving an unrelated remote client. An unmarked SSH pane cannot be mapped to a
+remote `client_tty` from local tmux metadata alone. An offline cached row
 cannot be jumped to until the host responds again.
 
 For configured hosts, hook-backed pull is authoritative: an SSH pane targeting
