@@ -311,6 +311,10 @@ func collect() ([]Agent, error) {
 }
 
 func collectPanes(panes []Pane) []Agent {
+	return collectPanesWithVisual(panes, true)
+}
+
+func collectPanesWithVisual(panes []Pane, visual bool) []Agent {
 	byPID := map[int]Pane{}
 	byID := map[string]Pane{}
 	order := map[string]int{}
@@ -408,7 +412,9 @@ func collectPanes(panes []Pane) []Agent {
 		agents = append(agents, a)
 		claimed[pane.ID] = true
 	}
-	agents = append(agents, collectScreenAgents(panes, claimed, capturePaneScreen, serverID)...)
+	if visual {
+		agents = append(agents, collectScreenAgents(panes, claimed, capturePaneScreen, serverID)...)
+	}
 
 	sort.SliceStable(agents, func(i, j int) bool {
 		return order[agents[i].Pane.ID] < order[agents[j].Pane.ID]

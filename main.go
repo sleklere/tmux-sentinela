@@ -20,7 +20,7 @@ const usage = `usage: tmux-sentinela <command>
   sidebar-drag-end <window> save the width after mouse release
   prune        close sidebars left alone in their window
   refresh      wake sidebars after a state or focus change
-  status       print every pane and detected agent (debug / scripting)
+  status [--json] print local agents as versioned JSON, or text diagnostics
   claude-hook  Claude Code hook entrypoint (JSON on stdin)
 `
 
@@ -55,7 +55,13 @@ func main() {
 	case "refresh":
 		err = publishRefresh()
 	case "status":
-		err = printStatus()
+		if arg(2) == "--json" && len(os.Args) == 3 {
+			err = printStatusJSON(os.Stdout)
+		} else if len(os.Args) == 2 {
+			err = printStatus()
+		} else {
+			err = fmt.Errorf("usage: tmux-sentinela status [--json]")
+		}
 	case "claude-hook":
 		err = claudeHook(os.Stdin)
 	default:
