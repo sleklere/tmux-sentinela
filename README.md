@@ -177,15 +177,15 @@ snapshot with hook-backed agents only: `version: 1`, `agents` (possibly empty),
 `window`, `pane`, `visible`, `current`, and `duration_seconds`. `status` without `--json` retains the
 text diagnostics. Unknown protocol versions are shown as incompatible.
 
-Local agents render immediately. Each remote has its own asynchronous SSH
-query with a three-second deadline. Results are cached in the sidebar until
-replaced; failures mark cached rows as offline rather than reporting stale
-blocked/busy states as live. `r` retries immediately. Authentication failures
-back off for five minutes; other failures retry after ten seconds. SSH stderr
-never appears on the sidebar terminal. Status polls use a single SSH channel
-per host, `BatchMode=yes`, and a short ControlPersist socket path. They never
-query individual agents in parallel over the same master, avoiding the sshd
-`MaxSessions` exhaustion caused by large SSH fanouts.
+Local agents render immediately. The first sidebar on each tmux server polls
+each host asynchronously, with a three-second deadline per host; the other
+sidebars read its shared tmux-option snapshot. Cached rows become offline when
+a poll fails or the shared snapshot expires. `r` retries immediately from any
+sidebar. Authentication failures back off for five minutes; other
+failures retry after ten seconds. SSH stderr never appears on the sidebar
+terminal. Status polls use a single SSH channel per host, `BatchMode=yes`, and
+a short ControlPersist socket path. One poller per tmux server avoids exhausting
+sshd `MaxSessions` when many sidebars are open.
 
 Jumping to a remote agent opens a local tmux window with an SSH tmux client,
 selecting the remote pane before attach. Sentinela marks the local pane with a
