@@ -217,10 +217,19 @@ func tick() tea.Cmd {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(m.pollCommand(m.requestedSequence), tick(), m.watchRefresh, m.pollRemotes(time.Now()))
+	return tea.Batch(m.pollCommand(m.requestedSequence), tick(), m.watchRefresh)
 }
 
 func (m *model) pollRemotes(at time.Time) tea.Cmd {
+	if m.self != "" && !m.leader {
+		return nil
+	}
+	return m.pollRemotesForced(at)
+}
+
+// Explicit retries from any sidebar are allowed; only automatic polls are
+// leader-only. A retry still respects in-flight requests for this sidebar.
+func (m *model) pollRemotesForced(at time.Time) tea.Cmd {
 	if m.remotePending == nil {
 		m.remotePending = make(map[string]bool)
 	}
@@ -294,7 +303,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			delete(m.remoteRetry, msg.host)
 		}
 		m.remotes[msg.host] = msg
-		m.applyPoll(pollMsg{agents: m.local, localPanes: m.localPanes, window: m.window, active: m.active,
+		if previous, ok := loadRemote(msg.host); !ok || !previous.at.After(msg.at) {
+			saveRemote(msg)
+		}
+		m.applyPoll(pollMsg{agents: m.local, localPanes: m.localPanes, leader: m.leader,
+			window: m.window, active: m.active,
 			sidebarFocused: m.sidebarFocused, layout: m.layout})
 	case pollMsg:
 		if msg.sequence < m.appliedSequence {
@@ -304,12 +317,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.polling = false
 		m.err = msg.err
 		if msg.err == nil {
+			if !msg.leader {
+				if m.remotes == nil {
+					m.remotes = make(map[string]remoteResult)
+				}
+				for _, host := range m.hosts {
+					if shared, ok := loadRemote(host); ok && !shared.at.Before(m.remotes[host].at) {
+						m.remotes[host] = shared
+					}
+				}
+			}
 			m.applyPoll(msg)
 		}
 		if m.pendingPoll {
 			m.pendingPoll = false
-			return m, m.beginPoll()
+			return m, tea.Batch(m.beginPoll(), m.pollRemotes(time.Now()))
 		}
+		return m, m.pollRemotes(time.Now())
 	case tea.MouseMsg:
 		// Press and release both count: when the sidebar pane is inactive,
 		// tmux uses the press to focus it and only forwards the release.
@@ -339,7 +363,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "r":
 			clear(m.remoteRetry)
-			return m, tea.Batch(m.requestPoll(time.Now()), m.pollRemotes(time.Now()))
+			return m, tea.Batch(m.requestPoll(time.Now()), m.pollRemotesForced(time.Now()))
 		}
 	}
 	return m, nil

@@ -13,6 +13,7 @@ func TestRemoteUpdateKeepsLastResultWithoutLiveBlockedCount(t *testing.T) {
 	isolateState(t)
 	m := newModel("")
 	m.hosts = []string{"dojo"}
+	m.leader = true
 	m.width, m.height = 50, 20
 	m.local = []Agent{{Kind: "pi", Name: "local", Key: "pi:1", Pane: Pane{ID: "%1"}}}
 	a := Agent{Host: "dojo", Kind: "claude", Name: "remote", Status: Blocked, Key: "remote:dojo:claude:1", Pane: Pane{ID: "%1", Session: "dev"}}
@@ -72,6 +73,7 @@ func TestRemoteBlockedTransitionNotifiesOnArrival(t *testing.T) {
 func TestRemotePollCommandsRemainIndependent(t *testing.T) {
 	m := newModel("")
 	m.hosts = []string{"dojo", "argos"}
+	m.leader = true
 	m.remotePending["dojo"] = true
 	if cmd := m.pollRemotes(time.Now()); cmd == nil || !m.remotePending["argos"] {
 		t.Fatal("one slow host blocked another")

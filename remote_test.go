@@ -76,6 +76,7 @@ func TestRemotePollDoesNotBlockLocalInit(t *testing.T) {
 	fakeSSH(t, "sleep 5")
 	m := newModel("")
 	m.hosts = []string{"slow", "other"}
+	m.leader = true
 	start := time.Now()
 	cmd := m.pollRemotes(start)
 	if cmd == nil || time.Since(start) > 100*time.Millisecond || !m.remotePending["slow"] || !m.remotePending["other"] {
