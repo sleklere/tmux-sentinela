@@ -1,7 +1,9 @@
 package main
 
 import (
+	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -30,9 +32,14 @@ func capturePaneScreen(paneID string) (string, error) {
 // only inferred visually for SSH panes, where their authoritative local state
 // files are unavailable.
 func collectScreenAgents(panes []Pane, claimed map[string]bool, capture paneCapture, serverID string) []Agent {
+	return collectScreenAgentsExcept(panes, claimed, capture, serverID, nil)
+}
+
+func collectScreenAgentsExcept(panes []Pane, claimed map[string]bool, capture paneCapture, serverID string, hosts []string) []Agent {
+	covered := sshPanesForHosts(panes, hosts)
 	var agents []Agent
 	for _, pane := range panes {
-		if pane.Sidebar || claimed[pane.ID] {
+		if pane.Sidebar || claimed[pane.ID] || covered[pane.ID] {
 			continue
 		}
 		screen, err := capture(pane.ID)
@@ -53,6 +60,58 @@ func collectScreenAgents(panes []Pane, claimed map[string]bool, capture paneCapt
 		})
 	}
 	return agents
+}
+
+// An SSH process descended from a pane's shell identifies a configured host.
+// Exclude that pane's visual guess even when the host is down: the pull is
+// authoritative, and a stale rendered screen must not resurrect an agent.
+func sshPanesForHosts(panes []Pane, hosts []string) map[string]bool {
+	covered := map[string]bool{}
+	if len(hosts) == 0 {
+		return covered
+	}
+	out, err := exec.Command("ps", "-eo", "pid=,ppid=,args=").Output()
+	if err != nil {
+		return covered
+	}
+	parents := map[int]int{}
+	sshHosts := map[int]string{}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		pid, e1 := strconv.Atoi(fields[0])
+		ppid, e2 := strconv.Atoi(fields[1])
+		if e1 != nil || e2 != nil {
+			continue
+		}
+		parents[pid] = ppid
+		if fields[2] != "ssh" && !strings.HasSuffix(fields[2], "/ssh") {
+			continue
+		}
+		for _, field := range fields[3:] {
+			for _, host := range hosts {
+				if field == host || strings.HasSuffix(field, "@"+host) {
+					sshHosts[pid] = host
+				}
+			}
+		}
+	}
+	byPID := map[int]string{}
+	for _, pane := range panes {
+		byPID[pane.PID] = pane.ID
+	}
+	for pid := range sshHosts {
+		for n := 0; n < 64 && pid > 1; n++ {
+			if id, ok := byPID[pid]; ok {
+				covered[id] = true
+				break
+			}
+			pid = parents[pid]
+		}
+	}
+	return covered
 }
 
 func detectScreenAgent(pane Pane, screen string) (screenAgentState, bool) {

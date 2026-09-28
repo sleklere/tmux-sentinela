@@ -23,6 +23,8 @@ const (
 )
 
 type Agent struct {
+	Host   string // empty for local agents
+	Stale  bool   // last known remote state, not a live status
 	Kind   string // claude | opencode | pi | hermes
 	Name   string
 	Status Status
@@ -413,7 +415,7 @@ func collectPanesWithVisual(panes []Pane, visual bool) []Agent {
 		claimed[pane.ID] = true
 	}
 	if visual {
-		agents = append(agents, collectScreenAgents(panes, claimed, capturePaneScreen, serverID)...)
+		agents = append(agents, collectScreenAgentsExcept(panes, claimed, capturePaneScreen, serverID, configuredHosts(globalOptions()))...)
 	}
 
 	sort.SliceStable(agents, func(i, j int) bool {

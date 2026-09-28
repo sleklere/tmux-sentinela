@@ -545,6 +545,18 @@ func TestSessionGroupsAndMouseRows(t *testing.T) {
 	}
 }
 
+func TestSessionGroupsKeepHostsSeparate(t *testing.T) {
+	agents := []Agent{
+		{Pane: Pane{Session: "work"}},
+		{Host: "argos", Pane: Pane{Session: "work"}},
+		{Host: "dev", Pane: Pane{Session: "work"}},
+	}
+	groups := sessionGroups(agents)
+	if len(groups) != 3 || groups[0].name != "work" || groups[1].name != "argos/work" || groups[2].name != "dev/work" {
+		t.Fatalf("groups = %+v", groups)
+	}
+}
+
 func TestSessionHeaderWidth(t *testing.T) {
 	th := loadTheme(nil)
 	for _, name := range []string{"a-long-session-name", "sesión-東京"} {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -83,6 +84,11 @@ type model struct {
 	notifyDone        string // @sentinela_notify_done
 	sound             string // @sentinela_sound
 	agents            []Agent
+	local             []Agent
+	hosts             []string
+	remotes           map[string]remoteResult
+	remotePending     map[string]bool
+	remoteRetry       map[string]time.Time
 	cursor            int
 	width             int
 	height            int
@@ -115,7 +121,8 @@ func newModel(bin string) model {
 	return model{bin: bin, self: selfPane(), th: loadTheme(o), notify: o["@sentinela_notify"],
 		notifyDone: o["@sentinela_notify_done"], sound: o["@sentinela_sound"],
 		seen: map[string]time.Time{}, started: now, frame: pulseTick(now), requestedSequence: 1, polling: true,
-		lastPollRequested: now, binStat: binStat}
+		lastPollRequested: now, binStat: binStat, hosts: configuredHosts(o),
+		remotes: map[string]remoteResult{}, remotePending: map[string]bool{}, remoteRetry: map[string]time.Time{}}
 }
 
 // rebuilt reports whether the executable on disk was replaced since startup,
@@ -181,6 +188,7 @@ func (m *model) beginPoll() tea.Cmd {
 	if m.self != "" && th.background != m.th.background {
 		paintSidebar(m.self, string(th.background))
 	}
+	m.hosts = configuredHosts(o)
 	m.th, m.notify = th, o["@sentinela_notify"]
 	m.notifyDone, m.sound = o["@sentinela_notify_done"], o["@sentinela_sound"]
 	return m.pollCommand(m.requestedSequence)
@@ -207,7 +215,35 @@ func tick() tea.Cmd {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(m.pollCommand(m.requestedSequence), tick(), m.watchRefresh)
+	return tea.Batch(m.pollCommand(m.requestedSequence), tick(), m.watchRefresh, m.pollRemotes(time.Now()))
+}
+
+func (m *model) pollRemotes(at time.Time) tea.Cmd {
+	var commands []tea.Cmd
+	for _, host := range m.hosts {
+		if m.remotePending[host] || at.Before(m.remoteRetry[host]) {
+			continue
+		}
+		m.remotePending[host] = true
+		h := host
+		commands = append(commands, func() tea.Msg { return pollRemote(context.Background(), h) })
+	}
+	return tea.Batch(commands...)
+}
+
+func (m model) allAgents() []Agent {
+	all := append([]Agent(nil), m.local...)
+	for _, host := range m.hosts {
+		result, ok := m.remotes[host]
+		if !ok {
+			continue
+		}
+		for _, a := range result.agents {
+			a.Stale = result.err != nil
+			all = append(all, a)
+		}
+	}
+	return all
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -221,13 +257,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.restart = true
 				return m, tea.Quit
 			}
-			return m, tea.Batch(tick(), m.requestPoll(at))
+			return m, tea.Batch(tick(), m.requestPoll(at), m.pollRemotes(at))
 		}
 		return m, tick()
 	case refreshMsg:
 		return m, tea.Batch(m.watchRefresh, m.requestPoll(time.Now()))
 	case refreshWatchStoppedMsg:
 		m.watchRefresh = nil
+	case remoteResult:
+		m.remotePending[msg.host] = false
+		if msg.err != nil {
+			// Keep the last successful snapshot, but never treat it as live.
+			msg.agents = m.remotes[msg.host].agents
+			if msg.err.Error() == "auth failed" {
+				m.remoteRetry[msg.host] = time.Now().Add(5 * time.Minute)
+			} else {
+				m.remoteRetry[msg.host] = time.Now().Add(10 * time.Second)
+			}
+		} else {
+			delete(m.remoteRetry, msg.host)
+		}
+		m.remotes[msg.host] = msg
+		m.applyPoll(pollMsg{agents: m.local, window: m.window, active: m.active,
+			sidebarFocused: m.sidebarFocused, layout: m.layout})
 	case pollMsg:
 		if msg.sequence < m.appliedSequence {
 			return m, nil
@@ -270,7 +322,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				jumpTo(m.agents[m.cursor].Pane.ID)
 			}
 		case "r":
-			return m, m.requestPoll(time.Now())
+			clear(m.remoteRetry)
+			return m, tea.Batch(m.requestPoll(time.Now()), m.pollRemotes(time.Now()))
 		}
 	}
 	return m, nil
@@ -282,8 +335,9 @@ func (m *model) applyPoll(msg pollMsg) {
 		cursorKey = m.agents[m.cursor].Key
 	}
 	now := time.Now()
-	trackScreenStatusTimes(msg.agents, m.agents, m.started, now)
-	m.agents = msg.agents
+	trackScreenStatusTimes(msg.agents, m.local, m.started, now)
+	m.local = msg.agents
+	m.agents = m.allAgents()
 	m.selectKey(cursorKey)
 	m.window, m.active, m.sidebarFocused = msg.window, msg.active, msg.sidebarFocused
 	m.layout = msg.layout
@@ -314,7 +368,7 @@ func (m *model) applyPoll(msg pollMsg) {
 
 		// Announce the transition into blocked, once, and not for the pane
 		// the user is already looking at.
-		if known && was != Blocked && a.Status == Blocked && !a.Pane.Visible &&
+		if known && !a.Stale && was != Blocked && a.Status == Blocked && !a.Pane.Visible &&
 			msg.leader && m.notify != "off" {
 			// F9: deduplicate notifications globally using shared state.
 			if !notifiedRecently(a.Key, "blocked") {
@@ -322,15 +376,17 @@ func (m *model) applyPoll(msg pollMsg) {
 				writeNotified(a.Key, "blocked")
 			}
 		}
-		if shouldPlayCompletionSound(was, known, a, msg.leader, m.sound) {
+		if !a.Stale && shouldPlayCompletionSound(was, known, a, msg.leader, m.sound) {
 			go playCompletionSound()
 		}
-		if shouldNotifyCompletion(was, known, a, msg.leader, m.notifyDone) {
+		if !a.Stale && shouldNotifyCompletion(was, known, a, msg.leader, m.notifyDone) {
 			go notifyCompletion(a, m.notifyDone)
 		}
 		prev[a.Key] = a.Status
 		// F7: persist current status so a transient loss doesn't forget the last known state.
-		writeStatus(a.Key, a.Status)
+		if !a.Stale {
+			writeStatus(a.Key, a.Status)
+		}
 	}
 	m.prev = prev
 	m.syncCursor(msg.sel)
@@ -523,6 +579,9 @@ func sessionGroups(agents []Agent) []sessionGroup {
 	byName := make(map[string]int)
 	for i, agent := range agents {
 		name := agent.Pane.Session
+		if agent.Host != "" {
+			name = agent.Host + "/" + name
+		}
 		group, ok := byName[name]
 		if !ok {
 			group = len(groups)
@@ -587,7 +646,7 @@ func (m model) View() string {
 		b.WriteString(lipgloss.NewStyle().Foreground(m.th.alert).Render(" tmux: " + m.err.Error()))
 		return b.String()
 	}
-	if len(m.agents) == 0 {
+	if len(m.agents) == 0 && len(m.hosts) == 0 {
 		b.WriteString(lipgloss.NewStyle().Foreground(m.th.muted).Render(" no agents running"))
 		return b.String()
 	}
@@ -621,6 +680,9 @@ func (m model) View() string {
 				window = strconv.Itoa(a.Pane.WindowIndex)
 			}
 			detail := a.Kind + "  " + window
+			if a.Stale {
+				detail += "  offline"
+			}
 			if a.Status != Idle { // how long it has been working / waiting
 				if d := since(a.Since); d != "" {
 					detail += "  " + d
@@ -632,6 +694,11 @@ func (m model) View() string {
 				line2 = fillRow(line2, row, w)
 			}
 			b.WriteString(line1 + "\n" + line2 + "\n")
+		}
+	}
+	for _, host := range m.hosts {
+		if result, ok := m.remotes[host]; ok && result.err != nil {
+			b.WriteString(" " + host + ": " + result.err.Error() + "\n")
 		}
 	}
 	return b.String()
