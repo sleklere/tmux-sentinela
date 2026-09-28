@@ -16,6 +16,8 @@ const usage = `usage: tmux-sentinela <command>
   pin [@id]     restore the sidebar after an external layout change
   pin-layout [@id] restore position and width after selecting a layout
   sidebar-resized <pane> <width> <window-width> record a manual width change
+  sidebar-drag-start <window> mark a mouse border drag
+  sidebar-drag-end <window> save the width after mouse release
   prune        close sidebars left alone in their window
   refresh      wake sidebars after a state or focus change
   status       print every pane and detected agent (debug / scripting)
@@ -44,6 +46,10 @@ func main() {
 		err = pinSidebar(arg(2), false, true)
 	case "sidebar-resized":
 		err = sidebarResized(arg(2), arg(3), arg(4), arg(5), arg(6), arg(7))
+	case "sidebar-drag-start":
+		err = sidebarDragStart(arg(2))
+	case "sidebar-drag-end":
+		err = sidebarDragEnd(arg(2))
 	case "prune":
 		err = pruneSidebars()
 	case "refresh":

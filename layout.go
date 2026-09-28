@@ -1,6 +1,9 @@
 package main
 
-import "strconv"
+import (
+	"strconv"
+	"time"
+)
 
 // A sidebar may occupy at most half the window. Keep the configured width
 // unchanged when the window is small so it can grow back with the window.
@@ -51,6 +54,24 @@ func syncSidebarWidths(panes []Pane, previous sidebarLayout) (sidebarLayout, err
 	configured, _ := strconv.Atoi(raw)
 	if configured <= 0 {
 		configured, _ = strconv.Atoi(defaultWidth)
+	}
+	// Mouse drag updates bypass after-resize-pane. A short-lived marker set by
+	// the border binding keeps a poll from undoing the drag before mouse release.
+	for _, pane := range panes {
+		if !pane.Sidebar || pane.Zoomed || pane.Width == sidebarWidth(configured, pane.WindowWidth) {
+			continue
+		}
+		raw, err := tmux("show-option", "-wqv", "-t", pane.WindowID, "@sentinela_dragging")
+		if err != nil {
+			return sidebarLayout{}, err
+		}
+		started, _ := strconv.ParseInt(raw, 10, 64)
+		if started > 0 && time.Since(time.Unix(started, 0)) < 30*time.Second {
+			return sidebarLayout{panes: panes, width: configured}, nil
+		}
+		if raw != "" {
+			tmux("set-option", "-wu", "-t", pane.WindowID, "@sentinela_dragging")
+		}
 	}
 	width, resizes := planSidebarWidths(panes, previous, configured)
 	if width != configured {

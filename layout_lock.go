@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"syscall"
+	"time"
 )
 
 // pinSidebar keeps the sidebar on the full-height left edge. Layout hooks
@@ -84,11 +85,12 @@ func pinSidebar(windowID string, next, force bool) error {
 	return restoreSidebar(windowID, sidebar.ID, work, width, sidebar.WindowWidth, sidebar.ID == activePane(windowID))
 }
 
-// sidebarResized records a deliberate resize-pane operation. The hook passes
-// the geometry captured when the command ran, so later layout changes cannot
-// turn a stale resize notification into a new shared width.
+// sidebarResized records a deliberate resize-pane operation. Resizing the
+// adjacent work pane can move the sidebar border too. The hook passes the
+// target geometry so later layout changes cannot turn a stale notification
+// into a new shared width.
 func sidebarResized(id, rawWidth, rawWindowWidth, marked, internal, zoomed string) error {
-	if marked != "1" || internal == "1" || zoomed == "1" {
+	if internal == "1" || zoomed == "1" {
 		return nil
 	}
 	width, err := strconv.Atoi(rawWidth)
@@ -103,23 +105,62 @@ func sidebarResized(id, rawWidth, rawWindowWidth, marked, internal, zoomed strin
 	if err != nil {
 		return err
 	}
+	var target Pane
 	for _, pane := range panes {
-		if pane.ID != id || !pane.Sidebar || pane.Zoomed || pane.Left != 0 ||
-			pane.Top != 0 || pane.Height != pane.WindowHeight ||
-			pane.Width != width || pane.WindowWidth != windowWidth {
+		if pane.ID == id {
+			target = pane
+			break
+		}
+	}
+	if target.ID == "" || target.Sidebar != (marked == "1") || target.Zoomed ||
+		target.Width != width || target.WindowWidth != windowWidth {
+		return nil // a later layout change superseded this resize event
+	}
+	for _, pane := range panes {
+		if pane.WindowID != target.WindowID || !pane.Sidebar || pane.Zoomed || pane.Left != 0 ||
+			pane.Top != 0 || pane.Height != pane.WindowHeight {
 			continue
 		}
-		observed, err := tmux("show-option", "-pqv", "-t", id, "@sentinela_observed_width")
-		if err != nil {
-			return err
-		}
-		if observed == rawWidth {
-			return nil // unzooming restores the previous width; it is not a drag
-		}
-		_, err = tmux("set-option", "-g", "@sentinela_width", strconv.Itoa(sidebarWidth(width, windowWidth)))
-		return err
+		return publishSidebarWidth(pane)
 	}
 	return nil
+}
+
+// Mouse drags change the layout without running another resize-pane command.
+// Keep the polling leader from restoring the old width until mouse release.
+func sidebarDragStart(windowID string) error {
+	if windowID == "" {
+		return nil
+	}
+	_, err := tmux("set-option", "-w", "-t", windowID, "@sentinela_dragging", strconv.FormatInt(time.Now().Unix(), 10))
+	return err
+}
+
+func sidebarDragEnd(windowID string) error {
+	if windowID == "" {
+		return nil
+	}
+	defer tmux("set-option", "-wu", "-t", windowID, "@sentinela_dragging")
+	panes, err := listPanes()
+	if err != nil {
+		return err
+	}
+	for _, pane := range panes {
+		if pane.WindowID == windowID && pane.Sidebar && !pane.Zoomed && pane.Left == 0 &&
+			pane.Top == 0 && pane.Height == pane.WindowHeight {
+			return publishSidebarWidth(pane)
+		}
+	}
+	return nil
+}
+
+func publishSidebarWidth(pane Pane) error {
+	observed, err := tmux("show-option", "-pqv", "-t", pane.ID, "@sentinela_observed_width")
+	if err != nil || observed == strconv.Itoa(pane.Width) {
+		return err // unchanged width (including unzoom) is not a manual resize
+	}
+	_, err = tmux("set-option", "-g", "@sentinela_width", strconv.Itoa(sidebarWidth(pane.Width, pane.WindowWidth)))
+	return err
 }
 
 func activePane(windowID string) string {

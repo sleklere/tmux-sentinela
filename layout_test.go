@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -112,6 +113,104 @@ func TestSidebarWidthSyncCapsManualResize(t *testing.T) {
 	}
 	if got := run("show-option", "-gqv", "@sentinela_width"); got != "80" {
 		t.Fatalf("shared width = %s, want 80", got)
+	}
+}
+
+func TestMouseDragKeepsWidthUntilRelease(t *testing.T) {
+	run := isolatedTmux(t)
+	run("set-option", "-g", "@sentinela_autocreate", "off")
+	loadPlugin(t)
+	keys := run("list-keys", "-T", "root")
+	if !strings.Contains(keys, "MouseDrag1Border") || !strings.Contains(keys, "sidebar-drag-start") ||
+		!strings.Contains(keys, "MouseDragEnd1Border") || !strings.Contains(keys, "sidebar-drag-end") {
+		t.Fatal("mouse border bindings are missing")
+	}
+	sidebar := run("split-window", "-hbdf", "-l", "32", "-t", "@0", "-P", "-F", "#{pane_id}", "sleep 300")
+	run("set-option", "-p", "-t", sidebar, "@sentinela_sidebar", "1")
+	m := testModel()
+	m.self = sidebar
+	poll := func() {
+		t.Helper()
+		msg := m.poll(0).(pollMsg)
+		if msg.err != nil {
+			t.Fatal(msg.err)
+		}
+		m.applyPoll(msg)
+	}
+	poll()
+	// Simulate the geometry changes tmux makes during a mouse drag: unlike
+	// resize-pane commands, these updates do not trigger after-resize-pane.
+	run("set-hook", "-gu", "after-resize-pane[50]")
+	if err := sidebarDragStart("@0"); err != nil {
+		t.Fatal(err)
+	}
+	run("resize-pane", "-t", sidebar, "-x", "43")
+	poll()
+	if got := run("display-message", "-p", "-t", sidebar, "#{pane_width}"); got != "43" {
+		t.Fatalf("poll reverted mouse drag to %s; want 43", got)
+	}
+	if got := run("show-option", "-gqv", "@sentinela_width"); got != "" {
+		t.Fatalf("drag published preference before release: %q", got)
+	}
+	if err := sidebarDragEnd("@0"); err != nil {
+		t.Fatal(err)
+	}
+	poll()
+	if got := run("show-option", "-gqv", "@sentinela_width"); got != "43" {
+		t.Fatalf("release saved width %q; want 43", got)
+	}
+	if got := run("display-message", "-p", "-t", sidebar, "#{pane_width}"); got != "43" {
+		t.Fatalf("width after release = %s; want 43", got)
+	}
+	// A lost mouse-release event must not disable width correction forever.
+	run("set-option", "-w", "-t", "@0", "@sentinela_dragging", "1")
+	run("resize-pane", "-t", sidebar, "-x", "50")
+	poll()
+	if got := run("display-message", "-p", "-t", sidebar, "#{pane_width}"); got != "43" {
+		t.Fatalf("stale drag marker kept sidebar at %s; want 43", got)
+	}
+	if got := run("show-option", "-wqv", "-t", "@0", "@sentinela_dragging"); got != "" {
+		t.Fatalf("stale drag marker remained: %q", got)
+	}
+}
+
+func TestResizeAdjacentWorkPaneKeepsSidebarWidth(t *testing.T) {
+	run := isolatedTmux(t)
+	run("set-option", "-g", "@sentinela_autocreate", "off")
+	loadPlugin(t)
+	sidebar := run("split-window", "-hbdf", "-l", "32", "-t", "@0", "-P", "-F", "#{pane_id}", "sleep 300")
+	run("set-option", "-p", "-t", sidebar, "@sentinela_sidebar", "1")
+	m := testModel()
+	m.self = sidebar
+	msg := m.poll(0).(pollMsg)
+	if msg.err != nil {
+		t.Fatal(msg.err)
+	}
+	m.applyPoll(msg)
+	work := run("list-panes", "-t", "@0", "-F", "#{?#{@sentinela_sidebar},,#{pane_id}}")
+	work = strings.TrimSpace(work)
+	workWidth := run("display-message", "-p", "-t", work, "#{pane_width}")
+	windowWidth := run("display-message", "-p", "-t", work, "#{window_width}")
+	if err := sidebarResized(work, workWidth, windowWidth, "", "", "0"); err != nil {
+		t.Fatal(err)
+	}
+	if got := run("show-option", "-gqv", "@sentinela_width"); got != "" {
+		t.Fatalf("unchanged sidebar published width %q", got)
+	}
+	run("resize-pane", "-t", work, "-L", "5")
+	newWidth := run("display-message", "-p", "-t", sidebar, "#{pane_width}")
+	if newWidth == "32" {
+		t.Fatal("adjacent pane resize did not change sidebar width")
+	}
+	if got := run("show-option", "-gqv", "@sentinela_width"); got != newWidth {
+		t.Fatalf("resize of work pane left preference at %q; sidebar is %s", got, newWidth)
+	}
+	msg = m.poll(1).(pollMsg)
+	if msg.err != nil {
+		t.Fatal(msg.err)
+	}
+	if got := run("display-message", "-p", "-t", sidebar, "#{pane_width}"); got != newWidth {
+		t.Fatalf("sidebar reverted to %s after poll; want %s", got, newWidth)
 	}
 }
 
