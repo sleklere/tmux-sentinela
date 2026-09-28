@@ -221,6 +221,9 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m *model) pollRemotes(at time.Time) tea.Cmd {
+	if m.remotePending == nil {
+		m.remotePending = make(map[string]bool)
+	}
 	var commands []tea.Cmd
 	for _, host := range m.hosts {
 		if m.remotePending[host] || at.Before(m.remoteRetry[host]) {
@@ -269,6 +272,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case jumpResult:
 		m.err = msg.err
 	case remoteResult:
+		if m.remotePending == nil {
+			m.remotePending = make(map[string]bool)
+		}
+		if m.remoteRetry == nil {
+			m.remoteRetry = make(map[string]time.Time)
+		}
+		if m.remotes == nil {
+			m.remotes = make(map[string]remoteResult)
+		}
 		m.remotePending[msg.host] = false
 		if msg.err != nil {
 			// Keep the last successful snapshot, but never treat it as live.

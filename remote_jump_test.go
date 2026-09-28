@@ -20,6 +20,91 @@ func TestReusableRemotePaneRequiresMatchingActiveSSH(t *testing.T) {
 	if got := reusableRemotePane([]Pane{p}, a); got != "" {
 		t.Fatalf("reused a pane without an SSH client: %s", got)
 	}
+	p.Command = "ssh"
+	second := p
+	second.ID = "%9"
+	if got := reusableRemotePane([]Pane{p, second}, a); got != "" {
+		t.Fatalf("ambiguous local SSH clients: %s", got)
+	}
+}
+
+func TestRemoteClientTTYSelection(t *testing.T) {
+	run := isolatedTmux(t)
+	run("set-option", "-p", "-t", "%0", "@sentinela_remote_token", strings.Repeat("a", 32))
+	fakeSSH(t, `printf '/dev/pts/13\n/dev/pts/14\n/dev/pts/13\n'`)
+	a := Agent{Host: "dojo", Pane: Pane{Session: "dev", WindowIndex: 2, ID: "%9"}}
+	if tty := remoteClientForPane(a, "%0"); tty != "/dev/pts/13" {
+		t.Fatalf("client tty = %q", tty)
+	}
+	want := "'tmux' 'switch-client' '-c' '/dev/pts/13' '-t' 'dev:2' && 'tmux' 'select-pane' '-t' '%9'"
+	if got := remoteSelectionForClient(a, "/dev/pts/13"); got != want {
+		t.Fatalf("client selection = %q", got)
+	}
+}
+
+func TestRemoteClientTTYRejectsUnmatchedClients(t *testing.T) {
+	run := isolatedTmux(t)
+	run("set-option", "-p", "-t", "%0", "@sentinela_remote_token", strings.Repeat("a", 32))
+	for _, output := range []string{"/dev/pts/13\n/dev/pts/14\n", "not-a-tty\n/dev/pts/13\n", ""} {
+		fakeSSH(t, "printf '%s' "+shellQuote(output))
+		if got := remoteClientForPane(Agent{Host: "dojo", Pane: Pane{Session: "dev"}}, "%0"); got != "" {
+			t.Fatalf("accepted %q as client tty: %q", output, got)
+		}
+	}
+}
+
+func TestRemoteSelectionTargetsAttachedClient(t *testing.T) {
+	if _, err := exec.LookPath("script"); err != nil {
+		t.Skip("script unavailable")
+	}
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux unavailable")
+	}
+	socket := filepath.Join(t.TempDir(), "remote")
+	run := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("tmux", append([]string{"-S", socket}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("tmux %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("-f", "/dev/null", "new-session", "-d", "-s", "dev", "sleep 300")
+	t.Cleanup(func() { exec.Command("tmux", "-S", socket, "kill-server").Run() })
+	paneID := run("new-window", "-d", "-t", "dev:", "-P", "-F", "#{pane_id}", "sleep 300")
+	input, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := exec.Command("script", "-q", "-c", "env -u TMUX tmux -S "+shellQuote(socket)+" attach -t dev:0", "/dev/null")
+	client.Stdin = input
+	if err := client.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { client.Process.Kill(); client.Wait(); input.Close(); writer.Close() })
+	var tty string
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		tty = run("list-clients", "-t", "dev", "-F", "#{client_tty}")
+		if tty != "" {
+			break
+		}
+	}
+	if tty == "" {
+		t.Fatal("remote tmux client did not attach")
+	}
+	a := Agent{Pane: Pane{Session: "dev", WindowIndex: 1, ID: paneID}}
+	selection := strings.ReplaceAll(remoteSelectionForClient(a, tty), "'tmux'", "tmux -S "+shellQuote(socket))
+	cmd := exec.Command("sh", "-c", selection)
+	cmd.Env = append(os.Environ(), "TMUX=")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("selection: %v: %s", err, out)
+	}
+	if got := run("display-message", "-p", "-c", tty, "#{window_index}"); got != "1" {
+		t.Fatalf("attached client window = %s, want 1", got)
+	}
+	if got := run("display-message", "-p", "-t", paneID, "#{pane_active}"); got != "1" {
+		t.Fatalf("selected pane active = %s", got)
+	}
 }
 
 func TestRemoteAttachSelectWithTwoTmuxServers(t *testing.T) {
