@@ -2,8 +2,9 @@
 
 *Sentinela* is Spanish for sentinel.
 
-A tmux sidebar that lists every AI coding agent (Claude Code, OpenCode, Pi, Hermes)
-running in any session, with its state, and jumps to its pane.
+A tmux sidebar that lists AI coding agents (Claude Code, OpenCode, Pi, Hermes)
+running in local tmux sessions, plus hook-backed agents on configured SSH hosts.
+It shows their state and jumps to their pane.
 
 ```
  agents 1
@@ -132,6 +133,8 @@ would without the plugin.
 | `@sentinela_notify` | `tmux` | on blocked: `tmux` (display-message), `desktop` (system notification), `both`, `off` |
 | `@sentinela_notify_done` | `off` | on background completion: `tmux`, `desktop`, `both`, `off` |
 | `@sentinela_sound` | `off` | on completion: `on` (embedded sound), `off` |
+| `@sentinela_hosts` | unset | space-separated SSH aliases with Sentinela installed; poll each host in parallel |
+| `@sentinela_remote_bin` | `tmux-sentinela` | absolute path to the Sentinela binary on all configured hosts when it is not on the SSH command path |
 | `@sentinela_bg` | unset | optional opaque background of the sidebar pane |
 | `@sentinela_color_text` | `@th_text` | agent names |
 | `@sentinela_color_muted` | `@th_muted` | details, idle glyph |
@@ -158,6 +161,47 @@ helpers fail silently.
 With tmux-resurrect, to restore the sidebar as a process instead of an empty
 shell: `set -g @resurrect-processes '"~tmux-sentinela sidebar"'`.
 
+## Multiple hosts
+
+Set SSH aliases in your ordinary SSH configuration and configure the sidebar:
+
+```tmux
+set -g @sentinela_hosts 'dojo argos notebook'
+```
+
+Each host must have `tmux-sentinela` on its SSH command path (or set
+`@sentinela_remote_bin` to a shared absolute remote path) and the same
+JSON protocol version. `tmux-sentinela status --json` prints a versioned local
+snapshot with hook-backed agents only: `version: 1`, `agents` (possibly empty),
+`key`, `kind`, `name`, `status`, `since` (RFC 3339), `pid`, `pane_id`, `session`,
+`window`, `pane`, `visible`, `current`, and `duration_seconds`. `status` without `--json` retains the
+text diagnostics. Unknown protocol versions are shown as incompatible.
+
+Local agents render immediately. Each remote has its own asynchronous SSH
+query with a three-second deadline. Results are cached in the sidebar until
+replaced; failures mark cached rows as offline rather than reporting stale
+blocked/busy states as live. `r` retries immediately. Authentication failures
+back off for five minutes; other failures retry after ten seconds. SSH stderr
+never appears on the sidebar terminal. Status polls use a single SSH channel
+per host, `BatchMode=yes`, and a short ControlPersist socket path. They never
+query individual agents in parallel over the same master, avoiding the sshd
+`MaxSessions` exhaustion caused by large SSH fanouts.
+
+Jumping to a remote agent opens a local tmux window with an SSH tmux client,
+selecting the remote pane before attach. Later jumps reuse that client while
+its local pane still runs `ssh`. For reuse, Sentinela marks the local attach
+pane with its host and remote session; an unmarked SSH pane cannot be mapped
+reliably to a remote tmux `client_tty` from the local tmux metadata alone and
+gets a new attach window. The remote `list-clients` TTY identifies the client
+on the remote machine, but contains no local pane ID. An offline cached row
+cannot be jumped to until the host responds again.
+
+For configured hosts, hook-backed pull is authoritative: an SSH pane targeting
+one of those aliases is not screen-captured. Visual detection remains for
+unconfigured hosts, and Hermes continues to use visual detection locally.
+Hermes on a configured remote host has no hook-backed state yet, so it will not
+appear. This fallback policy is subject to the operator's decision.
+
 ## How state is detected
 
 | Agent | busy / idle | blocked | name |
@@ -174,9 +218,9 @@ sidebar immediately; a two-second poll recovers missed events. Ordered refresh
 sequences prevent an older snapshot from replacing a newer one. Entries of dead
 processes are dropped.
 
-Visual detection needs only this plugin on the local machine: it reads the
-screen already rendered in tmux and never connects to or installs anything on
-the remote host. Local Claude Code and OpenCode state remains authoritative, so
+Visual detection for unconfigured hosts needs only this plugin on the local
+machine: it reads the screen already rendered in tmux and never connects to or
+installs anything on the remote host. Local Claude Code and OpenCode state remains authoritative, so
 their panes are not captured or duplicated. Each remaining pane is captured
 once per poll and tested in this order: Hermes, OpenCode over SSH, Claude Code
 over SSH.
@@ -194,7 +238,7 @@ and plugin events still refresh immediately.
 ## Binary commands
 
 `sidebar` (TUI), `ensure`, `toggle`, `next-layout`, `pin`, `pin-layout`,
-`sidebar-resized` (internal resize hook), `prune`, `refresh`, `status`,
+`sidebar-resized` (internal resize hook), `prune`, `refresh`, `status [--json]`,
 `claude-hook`.
 
 ## Tests and CI
