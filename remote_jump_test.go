@@ -182,6 +182,13 @@ TMUX= sh -c "$cmd" 2>> %s`, shellQuote(sshLog), remoteSocket, shellQuote(sshLog)
 	if attached == "" {
 		t.Fatalf("no marked local SSH pane: %+v", panes)
 	}
+	token, err := tmux("show-option", "-pqv", "-t", attached, "@sentinela_remote_token")
+	if err != nil || len(token) != 32 {
+		t.Fatalf("local attach token = %q: %v", token, err)
+	}
+	if tty := remoteRun("show-option", "-sqv", "@sentinela_client_"+token); !strings.HasPrefix(tty, "/dev/") {
+		t.Fatalf("remote PTY not registered for local pane: %q", tty)
+	}
 	// The SSH stand-in is a shell script, not a process named ssh; check
 	// the real process reuse predicate independently below.
 }
