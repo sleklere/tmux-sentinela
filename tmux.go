@@ -13,26 +13,28 @@ import (
 
 // Pane is one tmux pane as reported by list-panes -a.
 type Pane struct {
-	ID           string
-	PID          int
-	Command      string
-	Title        string
-	Session      string
-	WindowID     string
-	WindowIndex  int
-	WindowName   string
-	PaneIndex    int
-	Path         string
-	Visible      bool // active pane of the active window of an attached session
-	Current      bool // in the active window of an attached session
-	Sidebar      bool // pane running our sidebar
-	Width        int
-	Height       int
-	Left         int
-	Top          int
-	WindowWidth  int
-	WindowHeight int
-	Zoomed       bool
+	ID            string
+	PID           int
+	Command       string
+	Title         string
+	Session       string
+	WindowID      string
+	WindowIndex   int
+	WindowName    string
+	PaneIndex     int
+	Path          string
+	Visible       bool // active pane of the active window of an attached session
+	Current       bool // in the active window of an attached session
+	Sidebar       bool // pane running our sidebar
+	Width         int
+	Height        int
+	Left          int
+	Top           int
+	WindowWidth   int
+	WindowHeight  int
+	Zoomed        bool
+	RemoteHost    string // pane opened by Sentinela for a remote tmux client
+	RemoteSession string
 }
 
 func tmux(args ...string) (string, error) {
@@ -41,7 +43,7 @@ func tmux(args ...string) (string, error) {
 	return strings.TrimRight(string(out), "\n"), err
 }
 
-const paneFormat = "#{pane_id}\t#{pane_pid}\t#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}\t#{pane_index}\t#{pane_current_path}\t#{pane_active}\t#{window_active}\t#{session_attached}\t#{@sentinela_sidebar}\t#{pane_width}\t#{window_width}\t#{window_zoomed_flag}\t#{pane_current_command}\t#{pane_left}\t#{pane_top}\t#{pane_height}\t#{window_height}\t#{pane_title}"
+const paneFormat = "#{pane_id}\t#{pane_pid}\t#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}\t#{pane_index}\t#{pane_current_path}\t#{pane_active}\t#{window_active}\t#{session_attached}\t#{@sentinela_sidebar}\t#{pane_width}\t#{window_width}\t#{window_zoomed_flag}\t#{pane_current_command}\t#{pane_left}\t#{pane_top}\t#{pane_height}\t#{window_height}\t#{pane_title}\t#{@sentinela_remote_host}\t#{@sentinela_remote_session}"
 
 // listPanes returns every pane of every session, in tmux order.
 func listPanes() ([]Pane, error) {
@@ -73,6 +75,11 @@ func parsePaneLine(line string) (Pane, bool) {
 	top, _ := strconv.Atoi(f[17])
 	height, _ := strconv.Atoi(f[18])
 	windowHeight, _ := strconv.Atoi(f[19])
+	title, remoteHost, remoteSession := strings.Join(f[20:], "\t"), "", ""
+	if len(f) >= 23 {
+		title = strings.Join(f[20:len(f)-2], "\t")
+		remoteHost, remoteSession = f[len(f)-2], f[len(f)-1]
+	}
 	return Pane{
 		ID: f[0], PID: pid, Session: f[2], WindowID: f[3], WindowIndex: wi,
 		WindowName: f[5], PaneIndex: pi, Path: f[7],
@@ -81,7 +88,8 @@ func parsePaneLine(line string) (Pane, bool) {
 		Sidebar: f[11] != "",
 		Width:   width, Height: height, Left: left, Top: top,
 		WindowWidth: windowWidth, WindowHeight: windowHeight,
-		Zoomed: f[14] == "1", Command: f[15], Title: strings.Join(f[20:], "\t"),
+		Zoomed: f[14] == "1", Command: f[15], Title: title,
+		RemoteHost: remoteHost, RemoteSession: remoteSession,
 	}, true
 }
 
@@ -143,12 +151,27 @@ func isWindowZoomed(windowID string) bool {
 
 // jumpTo focuses a pane, switching session and window as needed.
 func jumpTo(paneID string) error {
+	location, err := tmux("display-message", "-p", "-t", paneID, "#{session_name}\t#{window_id}")
+	if err != nil {
+		return fmt.Errorf("tmux pane %s: %w", paneID, err)
+	}
+	session, window, ok := strings.Cut(location, "\t")
+	if !ok {
+		return fmt.Errorf("tmux pane %s: missing session/window", paneID)
+	}
 	for _, args := range [][]string{
-		{"switch-client", "-t", paneID},
-		{"select-window", "-t", paneID},
+		{"switch-client", "-t", session},
+		{"select-window", "-t", window},
 		{"select-pane", "-t", paneID},
 	} {
 		if _, err := tmux(args...); err != nil {
+			// A detached integration server has no client to switch. The
+			// window/pane selection still applies for its next attach.
+			if args[0] == "switch-client" {
+				if clients, listErr := tmux("list-clients", "-F", "#{client_tty}"); listErr != nil || clients == "" {
+					continue
+				}
+			}
 			return fmt.Errorf("tmux %s: %w", strings.Join(args, " "), err)
 		}
 	}

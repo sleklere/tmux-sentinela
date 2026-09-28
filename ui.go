@@ -66,6 +66,7 @@ const rowHeight = 2 // name line + detail line
 type pollMsg struct {
 	sequence       uint64
 	agents         []Agent
+	localPanes     []Pane
 	layout         sidebarLayout
 	leader         bool   // this sidebar is the first one in tmux order: it notifies
 	active         bool   // this sidebar pane has focus
@@ -85,6 +86,7 @@ type model struct {
 	sound             string // @sentinela_sound
 	agents            []Agent
 	local             []Agent
+	localPanes        []Pane
 	hosts             []string
 	remotes           map[string]remoteResult
 	remotePending     map[string]bool
@@ -172,7 +174,7 @@ func (m model) poll(sequence uint64) tea.Msg {
 		}
 		panes = layout.panes
 	}
-	return pollMsg{sequence: sequence, agents: collectPanes(panes), leader: leader,
+	return pollMsg{sequence: sequence, agents: collectPanes(panes), localPanes: panes, leader: leader,
 		active: active, sidebarFocused: sidebarFocused, window: window, sel: readSelection(), layout: layout}
 }
 
@@ -264,6 +266,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.watchRefresh, m.requestPoll(time.Now()))
 	case refreshWatchStoppedMsg:
 		m.watchRefresh = nil
+	case jumpResult:
+		m.err = msg.err
 	case remoteResult:
 		m.remotePending[msg.host] = false
 		if msg.err != nil {
@@ -278,7 +282,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			delete(m.remoteRetry, msg.host)
 		}
 		m.remotes[msg.host] = msg
-		m.applyPoll(pollMsg{agents: m.local, window: m.window, active: m.active,
+		m.applyPoll(pollMsg{agents: m.local, localPanes: m.localPanes, window: m.window, active: m.active,
 			sidebarFocused: m.sidebarFocused, layout: m.layout})
 	case pollMsg:
 		if msg.sequence < m.appliedSequence {
@@ -302,7 +306,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if press || release {
 			if i := agentAtRow(sessionGroups(m.agents), msg.Y); i >= 0 {
 				m.moveCursor(i)
-				jumpTo(m.agents[i].Pane.ID)
+				return m, m.jumpCommand(m.agents[i])
 			}
 		}
 	case tea.KeyMsg:
@@ -319,7 +323,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter", "l":
 			if m.cursor >= 0 && m.cursor < len(m.agents) {
-				jumpTo(m.agents[m.cursor].Pane.ID)
+				return m, m.jumpCommand(m.agents[m.cursor])
 			}
 		case "r":
 			clear(m.remoteRetry)
@@ -337,7 +341,24 @@ func (m *model) applyPoll(msg pollMsg) {
 	now := time.Now()
 	trackScreenStatusTimes(msg.agents, m.local, m.started, now)
 	m.local = msg.agents
+	m.localPanes = msg.localPanes
 	m.agents = m.allAgents()
+	// A marked local SSH pane is the client for its remote session. Only
+	// that pane can make a remote agent visible to this sidebar.
+	for i := range m.agents {
+		a := &m.agents[i]
+		if a.Host == "" {
+			continue
+		}
+		for _, p := range msg.localPanes {
+			if p.RemoteHost == a.Host && p.RemoteSession == a.Pane.Session && p.Command == "ssh" {
+				a.Pane.Visible = p.Visible
+				a.Pane.Current = p.Current
+				a.Pane.WindowID = p.WindowID
+				break
+			}
+		}
+	}
 	m.selectKey(cursorKey)
 	m.window, m.active, m.sidebarFocused = msg.window, msg.active, msg.sidebarFocused
 	m.layout = msg.layout

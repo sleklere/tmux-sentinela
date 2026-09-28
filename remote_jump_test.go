@@ -1,0 +1,102 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestReusableRemotePaneRequiresMatchingActiveSSH(t *testing.T) {
+	p := Pane{ID: "%8", PID: os.Getpid(), Command: "ssh", RemoteHost: "dojo", RemoteSession: "dev"}
+	a := Agent{Host: "dojo", Pane: Pane{Session: "dev"}}
+	if got := reusableRemotePane([]Pane{p}, a); got != p.ID {
+		t.Fatalf("reuse = %q, want %q", got, p.ID)
+	}
+	p.Command = "sh"
+	if got := reusableRemotePane([]Pane{p}, a); got != "" {
+		t.Fatalf("reused a pane without an SSH client: %s", got)
+	}
+}
+
+func TestRemoteAttachSelectWithTwoTmuxServers(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux unavailable")
+	}
+	remoteSocket := filepath.Join(t.TempDir(), "remote")
+	remoteRun := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("tmux", append([]string{"-S", remoteSocket}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("remote tmux %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	remoteRun("-f", "/dev/null", "new-session", "-d", "-s", "dev", "-x", "120", "-y", "35", "sleep 300")
+	t.Cleanup(func() { exec.Command("tmux", "-S", remoteSocket, "kill-server").Run() })
+	remotePane := remoteRun("split-window", "-d", "-t", "dev:", "-P", "-F", "#{pane_id}", "sleep 300")
+	// SSH stand-in: run the exact remote command chain on an independent tmux
+	// server, without requiring a live sshd or touching user sessions.
+	sshLog := filepath.Join(t.TempDir(), "ssh-log")
+	fakeSSH(t, fmt.Sprintf(`for cmd; do :; done
+printf '%%s\n' "$cmd" >> %s
+cmd=$(printf '%%s' "$cmd" | sed "s|'tmux'|tmux -S %s|g")
+printf 'running: %%s\n' "$cmd" >> %s
+TMUX= sh -c "$cmd" 2>> %s`, shellQuote(sshLog), remoteSocket, shellQuote(sshLog), shellQuote(sshLog)))
+	localRun := isolatedTmux(t)
+	localRun("set-option", "-g", "remain-on-exit", "on")
+	localSocket := strings.Split(os.Getenv("TMUX"), ",")[0]
+	input, keepOpen, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := exec.Command("script", "-q", "-c", "env -u TMUX tmux -S "+shellQuote(localSocket)+" attach -t test", "/dev/null")
+	client.Stdin, client.Stdout, client.Stderr = input, nil, nil
+	if err := client.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { client.Process.Kill(); client.Wait(); input.Close(); keepOpen.Close() })
+	for limit := time.Now().Add(time.Second); ; {
+		if out, _ := tmux("list-clients", "-F", "#{client_tty}"); out != "" {
+			break
+		}
+		if time.Now().After(limit) {
+			t.Fatal("local tmux client did not attach")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	a := Agent{Host: "dojo", Pane: Pane{Session: "dev", ID: remotePane}}
+	if err := jumpAgent(a, "@0"); err != nil {
+		out, _ := tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_current_command} #{pane_dead}")
+		t.Logf("local panes: %s", out)
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(remoteRun("list-panes", "-t", "dev:", "-F", "#{pane_id} #{pane_active}"), remotePane+" 1") {
+		if time.Now().After(deadline) {
+			log, _ := os.ReadFile(sshLog)
+			lp, _ := tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_current_command} #{pane_dead}")
+			capture, _ := tmux("capture-pane", "-p", "-t", "%1")
+			t.Fatalf("remote attach did not select pane; ssh log: %s; clients: %s; local panes: %s; capture: %s", log, remoteRun("list-clients", "-F", "#{client_session} #{client_tty}"), lp+"; remote panes: "+remoteRun("list-panes", "-t", "dev:", "-F", "#{pane_id} #{pane_active}"), capture)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	panes, err := listPanes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var attached string
+	for _, p := range panes {
+		if p.RemoteHost == "dojo" && p.RemoteSession == "dev" {
+			attached = p.ID
+		}
+	}
+	if attached == "" {
+		t.Fatalf("no marked local SSH pane: %+v", panes)
+	}
+	// The SSH stand-in is a shell script, not a process named ssh; check
+	// the real process reuse predicate independently below.
+}
