@@ -9,7 +9,7 @@ import (
 
 func TestLocalStatusWire(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	pane := Pane{ID: "%1", Session: "work", WindowIndex: 2, PaneIndex: 3}
+	pane := Pane{ID: "%1", Session: "work", WindowIndex: 2, PaneIndex: 3, Visible: true, Current: true}
 	agents := []Agent{
 		{Key: "pi:one:42", Kind: "pi", Name: "test", Status: Blocked, Since: now.Add(-90 * time.Second), PID: 42, Pane: pane},
 		{Key: "claude-screen:one:%2", Visual: true, Pane: Pane{ID: "%2"}},
@@ -26,7 +26,7 @@ func TestLocalStatusWire(t *testing.T) {
 		t.Fatalf("wire document: %s", b.String())
 	}
 	a := got.Agents[0]
-	if a.Status != "blocked" || a.Duration != 90 || a.PaneID != "%1" || a.Session != "work" || a.Window != 2 || a.Pane != 3 || a.Key != "pi:one:42" {
+	if a.Status != "blocked" || a.Duration != 90 || a.PaneID != "%1" || a.Session != "work" || a.Window != 2 || a.Pane != 3 || a.Key != "pi:one:42" || !a.Visible || !a.Current {
 		t.Fatalf("wire agent: %+v", a)
 	}
 }

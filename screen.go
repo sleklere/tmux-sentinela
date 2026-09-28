@@ -90,11 +90,10 @@ func sshPanesForHosts(panes []Pane, hosts []string) map[string]bool {
 		if fields[2] != "ssh" && !strings.HasSuffix(fields[2], "/ssh") {
 			continue
 		}
-		for _, field := range fields[3:] {
-			for _, host := range hosts {
-				if field == host || strings.HasSuffix(field, "@"+host) {
-					sshHosts[pid] = host
-				}
+		destination := sshDestination(fields[3:])
+		for _, host := range hosts {
+			if destination == host || strings.HasSuffix(destination, "@"+host) {
+				sshHosts[pid] = host
 			}
 		}
 	}
@@ -112,6 +111,26 @@ func sshPanesForHosts(panes []Pane, hosts []string) map[string]bool {
 		}
 	}
 	return covered
+}
+
+func sshDestination(args []string) string {
+	valueOptions := "bcDEeFIiJLlmOopQRSWw"
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return ""
+		}
+		if !strings.HasPrefix(arg, "-") {
+			return arg
+		}
+		if len(arg) == 2 && strings.ContainsRune(valueOptions, rune(arg[1])) {
+			i++
+		}
+	}
+	return ""
 }
 
 func detectScreenAgent(pane Pane, screen string) (screenAgentState, bool) {

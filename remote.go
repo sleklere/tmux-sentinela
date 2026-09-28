@@ -26,20 +26,23 @@ type remoteResult struct {
 // is short enough for Unix socket path limits even with a long home directory.
 func sshArgs(host string, interactive bool) []string {
 	path := filepath.Join(os.TempDir(), fmt.Sprintf("sentinela-ssh-%%C-%d", os.Getuid()))
-	args := []string{"-o", "BatchMode=yes", "-o", "ControlMaster=auto", "-o", "ControlPersist=60", "-o", "ControlPath=" + path, "-o", "ConnectTimeout=2"}
+	args := []string{"-o", "ControlMaster=auto", "-o", "ControlPersist=60", "-o", "ControlPath=" + path, "-o", "ConnectTimeout=2"}
 	if interactive {
 		args = append(args, "-t")
 	} else {
-		args = append(args, "-T")
+		args = append(args, "-o", "BatchMode=yes", "-T")
 	}
 	return append(args, "--", host)
 }
 
-func pollRemote(ctx context.Context, host string) remoteResult {
+func pollRemote(ctx context.Context, host, bin string) remoteResult {
 	result := remoteResult{host: host, at: time.Now()}
 	ctx, cancel := context.WithTimeout(ctx, remoteTimeout)
 	defer cancel()
-	args := append(sshArgs(host, false), "tmux-sentinela status --json")
+	if bin == "" {
+		bin = "tmux-sentinela"
+	}
+	args := append(sshArgs(host, false), remoteCommand(bin, "status", "--json"))
 	cmd := exec.CommandContext(ctx, "ssh", args...)
 	cmd.WaitDelay = 100 * time.Millisecond // do not wait for inherited SSH pipes after cancellation
 	// Keep diagnostics separate: stderr is never part of the JSON or terminal.
@@ -73,7 +76,8 @@ func pollRemote(ctx context.Context, host string) remoteResult {
 		result.agents = append(result.agents, Agent{
 			Host: host, Kind: a.Kind, Name: a.Name, Status: s, Since: a.Since,
 			PID: a.PID, Key: "remote:" + host + ":" + a.Key,
-			Pane: Pane{ID: a.PaneID, Session: a.Session, WindowIndex: a.Window, PaneIndex: a.Pane},
+			Pane: Pane{ID: a.PaneID, Session: a.Session, WindowIndex: a.Window, PaneIndex: a.Pane,
+				Visible: a.Visible, Current: a.Current},
 		})
 	}
 	return result

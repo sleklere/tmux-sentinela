@@ -26,6 +26,8 @@ type statusAgent struct {
 	Session  string    `json:"session"`
 	Window   int       `json:"window"`
 	Pane     int       `json:"pane"`
+	Visible  bool      `json:"visible"`
+	Current  bool      `json:"current"`
 	Duration int64     `json:"duration_seconds"`
 }
 
@@ -43,7 +45,8 @@ func localStatus(agents []Agent, now time.Time) statusDocument {
 		out.Agents = append(out.Agents, statusAgent{
 			Key: a.Key, Kind: a.Kind, Name: a.Name, Status: statuses[a.Status],
 			Since: a.Since, PID: a.PID, PaneID: a.Pane.ID, Session: a.Pane.Session,
-			Window: a.Pane.WindowIndex, Pane: a.Pane.PaneIndex, Duration: duration,
+			Window: a.Pane.WindowIndex, Pane: a.Pane.PaneIndex,
+			Visible: a.Pane.Visible, Current: a.Pane.Current, Duration: duration,
 		})
 	}
 	return out

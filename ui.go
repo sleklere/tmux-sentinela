@@ -682,12 +682,12 @@ func (m model) View() string {
 			// Every segment carries the row background: an inner reset would
 			// otherwise cut the tint short. Other rows keep the pane transparent.
 			row := lipgloss.NewStyle()
-			if a.Status == Blocked {
+			if a.Status == Blocked && !a.Stale {
 				row = row.Background(m.th.blockedBg)
 			}
 			g, c := m.glyph(a)
 			nameStyle := row.Foreground(m.th.text)
-			if m.done(a) || a.Status == Blocked {
+			if !a.Stale && (m.done(a) || a.Status == Blocked) {
 				nameStyle = nameStyle.Bold(true)
 			}
 			edge := row.Render(" ")
@@ -710,7 +710,7 @@ func (m model) View() string {
 				}
 			}
 			line2 := edge + row.Render("   ") + row.Foreground(m.th.muted).Render(truncate(detail, w-5))
-			if a.Status == Blocked {
+			if a.Status == Blocked && !a.Stale {
 				line1 = fillRow(line1, row, w)
 				line2 = fillRow(line2, row, w)
 			}

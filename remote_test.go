@@ -22,7 +22,7 @@ func fakeSSH(t *testing.T, script string) {
 func TestRemotePollParsesHooksAndKeepsSSHStderrPrivate(t *testing.T) {
 	fakeSSH(t, `echo 'ssh warning' >&2
 printf '%s\n' '{"version":1,"agents":[{"key":"pi:7","kind":"pi","name":"agent","status":"blocked","pane_id":"%1","session":"dev","window":1,"pane":2,"duration_seconds":42}]}'`)
-	got := pollRemote(context.Background(), "dojo")
+	got := pollRemote(context.Background(), "dojo", "")
 	if got.err != nil || len(got.agents) != 1 || got.agents[0].Key != "remote:dojo:pi:7" || got.agents[0].Status != Blocked || got.agents[0].Pane.PaneIndex != 2 {
 		t.Fatalf("poll: %+v", got)
 	}
@@ -36,7 +36,7 @@ func TestRemotePollFailures(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fakeSSH(t, tc.script)
-			if got := pollRemote(context.Background(), "dojo"); got.err == nil || got.err.Error() != tc.reason {
+			if got := pollRemote(context.Background(), "dojo", ""); got.err == nil || got.err.Error() != tc.reason {
 				t.Fatalf("poll error: %v, want %s", got.err, tc.reason)
 			}
 		})
@@ -48,9 +48,20 @@ func TestRemotePollTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	got := pollRemote(ctx, "down")
+	got := pollRemote(ctx, "down", "")
 	if got.err == nil || got.err.Error() != "unavailable" && got.err.Error() != "timeout" || time.Since(start) > time.Second {
 		t.Fatalf("timeout: %v, elapsed %s", got.err, time.Since(start))
+	}
+}
+
+func TestRemoteBinaryPathWithSpacesIsSingleCommand(t *testing.T) {
+	fakeSSH(t, `for arg; do last=$arg; done
+case "$last" in
+  "'/opt/sentinela bin/tmux-sentinela' 'status' '--json'") echo '{"version":1,"agents":[]}' ;;
+  *) exit 1 ;;
+esac`)
+	if got := pollRemote(context.Background(), "dojo", "/opt/sentinela bin/tmux-sentinela"); got.err != nil {
+		t.Fatalf("remote binary command: %v", got.err)
 	}
 }
 

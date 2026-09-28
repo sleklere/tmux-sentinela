@@ -37,7 +37,7 @@ func TestRemoteAttachSelectWithTwoTmuxServers(t *testing.T) {
 	}
 	remoteRun("-f", "/dev/null", "new-session", "-d", "-s", "dev", "-x", "120", "-y", "35", "sleep 300")
 	t.Cleanup(func() { exec.Command("tmux", "-S", remoteSocket, "kill-server").Run() })
-	remotePane := remoteRun("split-window", "-d", "-t", "dev:", "-P", "-F", "#{pane_id}", "sleep 300")
+	remotePane := remoteRun("new-window", "-d", "-t", "dev:", "-P", "-F", "#{pane_id}", "sleep 300")
 	// SSH stand-in: run the exact remote command chain on an independent tmux
 	// server, without requiring a live sshd or touching user sessions.
 	sshLog := filepath.Join(t.TempDir(), "ssh-log")
@@ -68,14 +68,14 @@ TMUX= sh -c "$cmd" 2>> %s`, shellQuote(sshLog), remoteSocket, shellQuote(sshLog)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	a := Agent{Host: "dojo", Pane: Pane{Session: "dev", ID: remotePane}}
+	a := Agent{Host: "dojo", Pane: Pane{Session: "dev", WindowIndex: 1, ID: remotePane}}
 	if err := jumpAgent(a, "@0"); err != nil {
 		out, _ := tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_current_command} #{pane_dead}")
 		t.Logf("local panes: %s", out)
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(2 * time.Second)
-	for !strings.Contains(remoteRun("list-panes", "-t", "dev:", "-F", "#{pane_id} #{pane_active}"), remotePane+" 1") {
+	for remoteRun("display-message", "-p", "-t", "dev:", "#{window_id}") != "@1" || !strings.Contains(remoteRun("list-panes", "-t", "dev:1", "-F", "#{pane_id} #{pane_active}"), remotePane+" 1") {
 		if time.Now().After(deadline) {
 			log, _ := os.ReadFile(sshLog)
 			lp, _ := tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_current_command} #{pane_dead}")

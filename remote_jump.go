@@ -42,15 +42,14 @@ func jumpAgent(a Agent, window string) error {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), remoteTimeout)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, "ssh", append(sshArgs(a.Host, false), remoteCommand("tmux", "select-pane", "-t", a.Pane.ID))...)
+		cmd := exec.CommandContext(ctx, "ssh", append(sshArgs(a.Host, false), remoteSelection(a))...)
 		cmd.Stdout, cmd.Stderr = nil, nil // discard diagnostics; never write on the TUI
 		return cmd.Run()
 	}
 	// Select before attaching: attach-session takes over the SSH terminal,
 	// so a tmux command queued after it may not run until detach.
 	// Both commands use the same SSH channel.
-	remote := remoteCommand("tmux", "select-pane", "-t", a.Pane.ID) +
-		" && exec " + remoteCommand("tmux", "attach-session", "-t", a.Pane.Session)
+	remote := remoteSelection(a) + " && exec " + remoteCommand("tmux", "attach-session", "-t", a.Pane.Session)
 	args := append(sshArgs(a.Host, true), remote)
 	parts := append([]string{"ssh"}, args...)
 	for i := range parts {
@@ -69,6 +68,11 @@ func jumpAgent(a Agent, window string) error {
 		}
 	}
 	return jumpTo(paneID)
+}
+
+func remoteSelection(a Agent) string {
+	return remoteCommand("tmux", "select-window", "-t", fmt.Sprintf("%s:%d", a.Pane.Session, a.Pane.WindowIndex)) +
+		" && " + remoteCommand("tmux", "select-pane", "-t", a.Pane.ID)
 }
 
 func reusableRemotePane(panes []Pane, a Agent) string {
