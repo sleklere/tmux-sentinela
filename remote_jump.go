@@ -68,7 +68,7 @@ func jumpAgent(a Agent, window string) error {
 	// the token lives on the local pane so only this pane's client is reused.
 	remote := remoteSelection(a) + " && tty=$(tty) && " +
 		remoteCommand("tmux", "set-option", "-s", "@sentinela_client_"+token) + " \"$tty\" && exec " +
-		remoteCommand("tmux", "-u", "attach-session", "-t", a.Pane.Session)
+		remoteCommand("tmux", "-u", "attach-session", "-f", "ignore-size", "-t", a.Pane.Session)
 	args := append(sshArgs(a.Host, true), remote)
 	parts := append([]string{"ssh"}, args...)
 	for i := range parts {

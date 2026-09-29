@@ -195,6 +195,11 @@ sshd `MaxSessions` when many sidebars are open.
 Jumping to a remote agent opens a local tmux window with an SSH tmux client,
 selecting the remote pane before attach. The SSH tmux client forces UTF-8 so
 its icons survive even if the remote login shell defaults to an ASCII locale.
+It uses `ignore-size` so switching to that client cannot resize windows shared
+with another tmux client. Existing SSH attach clients keep their old flags until
+they disconnect: close only the local SSH window and jump to the agent again.
+The remote agent stays in its tmux session. If the outer tmux client also lacks
+UTF-8, detach that client and reconnect from its shell with `tmux -u attach`.
 The remote tmux draws its own sidebar,
 so Sentinela closes the local sidebar in that attach window. `prefix + a` can
 reopen the local sidebar if needed. Sentinela marks the local pane with a

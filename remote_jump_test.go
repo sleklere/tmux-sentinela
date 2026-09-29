@@ -236,8 +236,8 @@ LC_ALL=C TMUX= sh -c "$cmd" 2>> %s`, shellQuote(sshLog), remoteSocket, shellQuot
 	if err != nil || !strings.Contains(string(log), "'-u' 'attach-session'") {
 		t.Fatalf("remote tmux client must force UTF-8: %v: %s", err, log)
 	}
-	if got := remoteRun("list-clients", "-t", "dev", "-F", "#{client_utf8}"); got != "1" {
-		t.Fatalf("remote client lost icons under ASCII locale: utf8=%q", got)
+	if got := remoteRun("list-clients", "-t", "dev", "-F", "#{client_utf8} #{client_flags}"); !strings.Contains(got, "1 ") || !strings.Contains(got, "ignore-size") {
+		t.Fatalf("remote client must use UTF-8 without resizing tmux: %q", got)
 	}
 	// Exercise repeated agent jumps against the real attached client on an
 	// isolated server. Selecting a pane in an inactive window must not show

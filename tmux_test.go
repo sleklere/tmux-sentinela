@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,6 +60,62 @@ func TestJumpSelectsWorkPaneBeforeShowingWindow(t *testing.T) {
 	}
 	if got := run("show-option", "-gqv", "@jump_observed"); got != work {
 		t.Fatalf("window briefly displayed pane %s instead of target %s", got, work)
+	}
+}
+
+func TestWindowSizeStaysFixedWhenSwitchingBetweenClients(t *testing.T) {
+	run := isolatedTmux(t)
+	socket := strings.Split(os.Getenv("TMUX"), ",")[0]
+	attach := func(flags ...string) string {
+		t.Helper()
+		input, writer, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		client := exec.Command("env", append([]string{"-u", "TMUX", "tmux", "-C", "-S", socket, "attach", "-t", "test"}, flags...)...)
+		client.Stdin, client.Stdout, client.Stderr = input, io.Discard, io.Discard
+		if err := client.Start(); err != nil {
+			input.Close()
+			writer.Close()
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { client.Process.Kill(); client.Wait(); input.Close(); writer.Close() })
+		name := fmt.Sprintf("client-%d", client.Process.Pid)
+		for limit := time.Now().Add(2 * time.Second); time.Now().Before(limit); time.Sleep(20 * time.Millisecond) {
+			if strings.Contains(run("list-clients", "-F", "#{client_name}"), name) {
+				return name
+			}
+		}
+		t.Fatalf("control client %s did not attach", name)
+		return ""
+	}
+	small, large := attach(), attach()
+	run("refresh-client", "-t", small, "-C", "186,43")
+	run("refresh-client", "-t", large, "-C", "186,47")
+	run("new-window", "-d", "-t", "test:", "-n", "dev", "sleep 300")
+	run("set-window-option", "-g", "aggressive-resize", "on")
+	run("set-window-option", "-g", "window-size", "latest")
+	cycle := func() (string, string) {
+		run("switch-client", "-c", small, "-t", "test:1")
+		run("switch-client", "-c", large, "-t", "test:0")
+		before := run("display-message", "-p", "-t", "test:0", "#{window_width}x#{window_height}")
+		run("switch-client", "-c", small, "-t", "test:0")
+		after := run("display-message", "-p", "-t", "test:0", "#{window_width}x#{window_height}")
+		return before, after
+	}
+	before, after := cycle()
+	if before == after {
+		t.Fatalf("expected latest size to reproduce resize when returning: %s -> %s", before, after)
+	}
+	run("detach-client", "-t", small)
+	small = attach("-f", "ignore-size")
+	run("refresh-client", "-t", small, "-C", "186,43")
+	if clients := run("list-clients", "-F", "#{client_name} #{client_flags}"); !strings.Contains(clients, small+" attached") || !strings.Contains(clients, "ignore-size") {
+		t.Fatalf("remote client is not ignoring size: %s", clients)
+	}
+	before, after = cycle()
+	if before != after {
+		t.Fatalf("switching agents resized primary window with ignore-size: %s -> %s", before, after)
 	}
 }
 
