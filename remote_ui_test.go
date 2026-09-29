@@ -12,6 +12,7 @@ import (
 func TestRemoteUpdateKeepsLastResultWithoutLiveBlockedCount(t *testing.T) {
 	isolateState(t)
 	m := newModel("")
+	m.localHost = "argos" // the CI runner's hostname must not determine fixture order
 	m.hosts = []string{"dojo"}
 	m.leader = true
 	m.width, m.height = 50, 20
