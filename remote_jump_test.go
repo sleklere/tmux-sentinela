@@ -82,7 +82,12 @@ func TestRemoteSelectionTargetsAttachedClient(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux unavailable")
 	}
-	socket := filepath.Join(t.TempDir(), "remote")
+	dir, err := os.MkdirTemp("", "sentinela-remote-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { removeAllRetry(dir, 2*time.Second) })
+	socket := filepath.Join(dir, "remote")
 	run := func(args ...string) string {
 		t.Helper()
 		out, err := exec.Command("tmux", append([]string{"-S", socket}, args...)...).CombinedOutput()
@@ -98,7 +103,7 @@ func TestRemoteSelectionTargetsAttachedClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := exec.Command("script", "-q", "-c", "env -u TMUX tmux -S "+shellQuote(socket)+" attach -t dev:0", "/dev/null")
+	client := exec.Command("script", "-q", "-c", "env -u TMUX TERM=xterm-256color tmux -S "+shellQuote(socket)+" attach -t dev:0", "/dev/null")
 	client.Stdin = input
 	if err := client.Start(); err != nil {
 		t.Fatal(err)
@@ -133,7 +138,12 @@ func TestRemoteAttachSelectWithTwoTmuxServers(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux unavailable")
 	}
-	remoteSocket := filepath.Join(t.TempDir(), "remote")
+	dir, err := os.MkdirTemp("", "sentinela-remote-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { removeAllRetry(dir, 2*time.Second) })
+	remoteSocket := filepath.Join(dir, "remote")
 	remoteRun := func(args ...string) string {
 		t.Helper()
 		out, err := exec.Command("tmux", append([]string{"-S", remoteSocket}, args...)...).CombinedOutput()
@@ -160,7 +170,7 @@ TMUX= sh -c "$cmd" 2>> %s`, shellQuote(sshLog), remoteSocket, shellQuote(sshLog)
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := exec.Command("script", "-q", "-c", "env -u TMUX tmux -S "+shellQuote(localSocket)+" attach -t test", "/dev/null")
+	client := exec.Command("script", "-q", "-c", "env -u TMUX TERM=xterm-256color tmux -S "+shellQuote(localSocket)+" attach -t test", "/dev/null")
 	client.Stdin, client.Stdout, client.Stderr = input, nil, nil
 	if err := client.Start(); err != nil {
 		t.Fatal(err)

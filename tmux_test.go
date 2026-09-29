@@ -47,16 +47,26 @@ func isolatedTmux(t *testing.T) func(...string) string {
 }
 
 func TestListPanesWithoutTMUXOverDefaultSocket(t *testing.T) {
-	_ = isolatedTmux(t)
-	socket := strings.Split(os.Getenv("TMUX"), ",")[0]
-	base := t.TempDir()
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux is not installed")
+	}
+	base, err := os.MkdirTemp("", "sentinela-default-")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defaultDir := filepath.Join(base, "tmux-"+strconv.Itoa(os.Getuid()))
 	if err := os.MkdirAll(defaultDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(socket, filepath.Join(defaultDir, "default")); err != nil {
-		t.Fatal(err)
+	socket := filepath.Join(defaultDir, "default")
+	cmd := exec.Command("tmux", "-S", socket, "-f", "/dev/null", "new-session", "-d", "-s", "test", "sleep 300")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("start tmux: %v: %s", err, out)
 	}
+	t.Cleanup(func() {
+		exec.Command("tmux", "-S", socket, "kill-server").Run()
+		removeAllRetry(base, 2*time.Second)
+	})
 	t.Setenv("TMUX_TMPDIR", base)
 	t.Setenv("TMUX", "")
 	panes, err := listPanes()
