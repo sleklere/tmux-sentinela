@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -75,6 +76,15 @@ func TestRemoteClientTTYRejectsUnmatchedClients(t *testing.T) {
 	}
 }
 
+func scriptAttach(socket, session string) *exec.Cmd {
+	args := []string{"env", "-u", "TMUX", "TERM=xterm-256color", "tmux", "-S", socket, "attach", "-t", session}
+	if runtime.GOOS == "darwin" {
+		// BSD script takes the command after the output file, without -c.
+		return exec.Command("script", append([]string{"-q", "/dev/null"}, args...)...)
+	}
+	return exec.Command("script", "-q", "-c", "env -u TMUX TERM=xterm-256color tmux -S "+shellQuote(socket)+" attach -t "+shellQuote(session), "/dev/null")
+}
+
 func TestRemoteSelectionTargetsAttachedClient(t *testing.T) {
 	if _, err := exec.LookPath("script"); err != nil {
 		t.Skip("script unavailable")
@@ -103,7 +113,7 @@ func TestRemoteSelectionTargetsAttachedClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := exec.Command("script", "-q", "-c", "env -u TMUX TERM=xterm-256color tmux -S "+shellQuote(socket)+" attach -t dev:0", "/dev/null")
+	client := scriptAttach(socket, "dev:0")
 	client.Stdin = input
 	if err := client.Start(); err != nil {
 		t.Fatal(err)
@@ -170,7 +180,7 @@ TMUX= sh -c "$cmd" 2>> %s`, shellQuote(sshLog), remoteSocket, shellQuote(sshLog)
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := exec.Command("script", "-q", "-c", "env -u TMUX TERM=xterm-256color tmux -S "+shellQuote(localSocket)+" attach -t test", "/dev/null")
+	client := scriptAttach(localSocket, "test")
 	client.Stdin, client.Stdout, client.Stderr = input, nil, nil
 	if err := client.Start(); err != nil {
 		t.Fatal(err)
