@@ -66,13 +66,13 @@ func TestJumpSelectsWorkPaneBeforeShowingWindow(t *testing.T) {
 func TestWindowSizeStaysFixedWhenSwitchingBetweenClients(t *testing.T) {
 	run := isolatedTmux(t)
 	socket := strings.Split(os.Getenv("TMUX"), ",")[0]
-	attach := func(flags ...string) string {
+	attach := func() string {
 		t.Helper()
 		input, writer, err := os.Pipe()
 		if err != nil {
 			t.Fatal(err)
 		}
-		client := exec.Command("env", append([]string{"-u", "TMUX", "tmux", "-C", "-S", socket, "attach", "-t", "test"}, flags...)...)
+		client := exec.Command("env", "-u", "TMUX", "tmux", "-C", "-S", socket, "attach", "-t", "test")
 		client.Stdin, client.Stdout, client.Stderr = input, io.Discard, io.Discard
 		if err := client.Start(); err != nil {
 			input.Close()
@@ -107,9 +107,7 @@ func TestWindowSizeStaysFixedWhenSwitchingBetweenClients(t *testing.T) {
 	if before == after {
 		t.Fatalf("expected latest size to reproduce resize when returning: %s -> %s", before, after)
 	}
-	run("detach-client", "-t", small)
-	small = attach("-f", "ignore-size")
-	run("refresh-client", "-t", small, "-C", "186,43")
+	run("refresh-client", "-t", small, "-f", "ignore-size")
 	if clients := run("list-clients", "-F", "#{client_name} #{client_flags}"); !strings.Contains(clients, small+" attached") || !strings.Contains(clients, "ignore-size") {
 		t.Fatalf("remote client is not ignoring size: %s", clients)
 	}
