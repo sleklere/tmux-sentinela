@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -42,6 +43,9 @@ func jumpAgent(a Agent, window string) error {
 		// The attach records its remote PTY under a random token. Never infer
 		// identity from session alone: other clients can attach to it too.
 		if tty := remoteClientForPane(a, paneID); tty != "" {
+			if err := suppressLocalSidebar(paneID); err != nil {
+				return err
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), remoteTimeout)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, "ssh", append(sshArgs(a.Host, false), remoteSelectionForClient(a, tty))...)
@@ -82,7 +86,40 @@ func jumpAgent(a Agent, window string) error {
 			return fmt.Errorf("mark remote pane: %w", err)
 		}
 	}
+	if err := suppressLocalSidebar(paneID); err != nil {
+		return err
+	}
 	return jumpTo(paneID)
+}
+
+// The attached remote tmux already draws its own sidebar. Keep the local
+// attach window full-width, but let the user reopen its local bar with toggle.
+func suppressLocalSidebar(paneID string) error {
+	if !ensureLock() {
+		if !waitForLock(2*time.Second) || !ensureLock() {
+			return fmt.Errorf("remote sidebar: could not acquire ensure lock")
+		}
+	}
+	defer ensureUnlock()
+	window, err := tmux("display-message", "-p", "-t", paneID, "#{window_id}")
+	if err != nil {
+		return err
+	}
+	if _, err := tmux("set-option", "-w", "-t", window, userClosedOption, "1"); err != nil {
+		return err
+	}
+	panes, err := listPanes()
+	if err != nil {
+		return err
+	}
+	for _, p := range panes {
+		if p.WindowID == window && p.Sidebar {
+			if _, err := tmux("kill-pane", "-t", p.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func remoteSelection(a Agent) string {

@@ -28,6 +28,28 @@ func TestReusableRemotePaneRequiresMatchingActiveSSH(t *testing.T) {
 	}
 }
 
+func TestRemoteAttachKeepsOnlyRemoteSidebar(t *testing.T) {
+	run := isolatedTmux(t)
+	sidebar := run("split-window", "-d", "-t", "%0", "-P", "-F", "#{pane_id}", "sleep 300")
+	run("set-option", "-p", "-t", sidebar, "@sentinela_sidebar", "1")
+	run("set-option", "-p", "-t", "%0", "@sentinela_remote_host", "dev")
+	if err := suppressLocalSidebar("%0"); err != nil {
+		t.Fatal(err)
+	}
+	if got := run("list-panes", "-t", "@0", "-F", "#{pane_id}"); got != "%0" {
+		t.Fatalf("local attach panes = %q, want only %%0", got)
+	}
+	if got := run("show-option", "-wqv", "-t", "@0", userClosedOption); got != "1" {
+		t.Fatalf("suppression option = %q", got)
+	}
+	if err := ensureSidebars("/bin/false"); err != nil {
+		t.Fatal(err)
+	}
+	if got := run("list-panes", "-t", "@0", "-F", "#{pane_id}"); got != "%0" {
+		t.Fatalf("ensure reopened local sidebar: %q", got)
+	}
+}
+
 func TestRemoteClientTTYSelection(t *testing.T) {
 	run := isolatedTmux(t)
 	run("set-option", "-p", "-t", "%0", "@sentinela_remote_token", strings.Repeat("a", 32))
