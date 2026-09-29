@@ -46,6 +46,28 @@ func isolatedTmux(t *testing.T) func(...string) string {
 	return run
 }
 
+func TestListPanesWithoutTMUXOverDefaultSocket(t *testing.T) {
+	_ = isolatedTmux(t)
+	socket := strings.Split(os.Getenv("TMUX"), ",")[0]
+	base := t.TempDir()
+	defaultDir := filepath.Join(base, "tmux-"+strconv.Itoa(os.Getuid()))
+	if err := os.MkdirAll(defaultDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(socket, filepath.Join(defaultDir, "default")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMUX_TMPDIR", base)
+	t.Setenv("TMUX", "")
+	panes, err := listPanes()
+	if err != nil || len(panes) != 1 || panes[0].Session != "test" {
+		t.Fatalf("listPanes without TMUX: %v, panes=%+v", err, panes)
+	}
+	if got := os.Getenv("TMUX"); got != socket+",0,0" {
+		t.Fatalf("TMUX = %q, want socket %q", got, socket)
+	}
+}
+
 func TestSessionCloseWakesOtherSidebars(t *testing.T) {
 	for _, tc := range []struct {
 		name, command string

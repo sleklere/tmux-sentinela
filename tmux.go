@@ -47,6 +47,16 @@ const paneFormat = "#{pane_id}\t#{pane_pid}\t#{session_name}\t#{window_id}\t#{wi
 
 // listPanes returns every pane of every session, in tmux order.
 func listPanes() ([]Pane, error) {
+	// A non-interactive SSH command has no TMUX environment. tmux 3.7 can
+	// replace format tabs with underscores in that case, leaving no parseable
+	// panes. Supply the socket context used by this tmux server.
+	if os.Getenv("TMUX") == "" {
+		if socket, err := tmux("display-message", "-p", "#{socket_path}"); err == nil && socket != "" {
+			if err := os.Setenv("TMUX", socket+",0,0"); err != nil {
+				return nil, err
+			}
+		}
+	}
 	out, err := tmux("list-panes", "-a", "-F", paneFormat)
 	if err != nil {
 		return nil, err
