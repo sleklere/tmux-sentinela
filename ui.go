@@ -87,7 +87,9 @@ type model struct {
 	agents            []Agent
 	local             []Agent
 	localPanes        []Pane
+	leader            bool
 	hosts             []string
+	remoteBin         string
 	remotes           map[string]remoteResult
 	remotePending     map[string]bool
 	remoteRetry       map[string]time.Time
@@ -123,7 +125,7 @@ func newModel(bin string) model {
 	return model{bin: bin, self: selfPane(), th: loadTheme(o), notify: o["@sentinela_notify"],
 		notifyDone: o["@sentinela_notify_done"], sound: o["@sentinela_sound"],
 		seen: map[string]time.Time{}, started: now, frame: pulseTick(now), requestedSequence: 1, polling: true,
-		lastPollRequested: now, binStat: binStat, hosts: configuredHosts(o),
+		lastPollRequested: now, binStat: binStat, hosts: configuredHosts(o), remoteBin: o["@sentinela_remote_bin"],
 		remotes: map[string]remoteResult{}, remotePending: map[string]bool{}, remoteRetry: map[string]time.Time{}}
 }
 
@@ -191,6 +193,7 @@ func (m *model) beginPoll() tea.Cmd {
 		paintSidebar(m.self, string(th.background))
 	}
 	m.hosts = configuredHosts(o)
+	m.remoteBin = o["@sentinela_remote_bin"]
 	m.th, m.notify = th, o["@sentinela_notify"]
 	m.notifyDone, m.sound = o["@sentinela_notify_done"], o["@sentinela_sound"]
 	return m.pollCommand(m.requestedSequence)
@@ -239,8 +242,8 @@ func (m *model) pollRemotesForced(at time.Time) tea.Cmd {
 			continue
 		}
 		m.remotePending[host] = true
-		h := host
-		commands = append(commands, func() tea.Msg { return pollRemote(context.Background(), h) })
+		h, bin := host, m.remoteBin
+		commands = append(commands, func() tea.Msg { return pollRemote(context.Background(), h, bin) })
 	}
 	return tea.Batch(commands...)
 }
@@ -378,6 +381,7 @@ func (m *model) applyPoll(msg pollMsg) {
 	trackScreenStatusTimes(msg.agents, m.local, m.started, now)
 	m.local = msg.agents
 	m.localPanes = msg.localPanes
+	m.leader = msg.leader
 	m.agents = m.allAgents()
 	// A marked local SSH pane is the client for its remote session. Only
 	// that pane can make a remote agent visible to this sidebar.
@@ -388,8 +392,8 @@ func (m *model) applyPoll(msg pollMsg) {
 		}
 		for _, p := range msg.localPanes {
 			if p.RemoteHost == a.Host && p.RemoteSession == a.Pane.Session && p.Command == "ssh" {
-				a.Pane.Visible = p.Visible
-				a.Pane.Current = p.Current
+				a.Pane.Visible = p.Visible && a.Pane.Visible
+				a.Pane.Current = p.Current && a.Pane.Current
 				a.Pane.WindowID = p.WindowID
 				break
 			}
@@ -574,6 +578,8 @@ func (m model) done(a Agent) bool {
 
 func (m model) glyph(a Agent) (string, lipgloss.Color) {
 	switch {
+	case a.Stale:
+		return "?", m.th.muted
 	case a.Status == Blocked:
 		return "●", m.th.alert
 	case a.Status == Busy:
@@ -772,7 +778,7 @@ func fillRow(line string, row lipgloss.Style, w int) string {
 func countStatus(agents []Agent, s Status) int {
 	n := 0
 	for _, a := range agents {
-		if a.Status == s {
+		if !a.Stale && a.Status == s {
 			n++
 		}
 	}
