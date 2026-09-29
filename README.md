@@ -179,6 +179,9 @@ snapshot with hook-backed agents only: `version: 1`, `agents` (possibly empty),
 `window`, `pane`, `visible`, `current`, and `duration_seconds`. `status` without `--json` retains the
 text diagnostics. Unknown protocol versions are shown as incompatible.
 
+With multiple hosts, session headings include the host name and sort by
+host/session on every machine. The local host name comes from the system
+hostname; SSH aliases should match those hostnames for consistent headings.
 Local agents render immediately. The first sidebar on each tmux server polls
 each host asynchronously, with a three-second deadline per host; the other
 sidebars read its shared tmux-option snapshot. Cached rows become offline when
@@ -190,7 +193,9 @@ a short ControlPersist socket path. One poller per tmux server avoids exhausting
 sshd `MaxSessions` when many sidebars are open.
 
 Jumping to a remote agent opens a local tmux window with an SSH tmux client,
-selecting the remote pane before attach. The remote tmux draws its own sidebar,
+selecting the remote pane before attach. The SSH tmux client forces UTF-8 so
+its icons survive even if the remote login shell defaults to an ASCII locale.
+The remote tmux draws its own sidebar,
 so Sentinela closes the local sidebar in that attach window. `prefix + a` can
 reopen the local sidebar if needed. Sentinela marks the local pane with a
 random token and records its SSH PTY under that token in the remote tmux server.

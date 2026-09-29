@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -89,6 +90,7 @@ type model struct {
 	localPanes        []Pane
 	leader            bool
 	hosts             []string
+	localHost         string
 	remoteBin         string
 	remotes           map[string]remoteResult
 	remotePending     map[string]bool
@@ -122,10 +124,12 @@ func newModel(bin string) model {
 	o := globalOptions()
 	now := time.Now()
 	binStat, _ := os.Stat(bin)
+	hostname, _ := os.Hostname()
+	localHost, _, _ := strings.Cut(hostname, ".")
 	return model{bin: bin, self: selfPane(), th: loadTheme(o), notify: o["@sentinela_notify"],
 		notifyDone: o["@sentinela_notify_done"], sound: o["@sentinela_sound"],
 		seen: map[string]time.Time{}, started: now, frame: pulseTick(now), requestedSequence: 1, polling: true,
-		lastPollRequested: now, binStat: binStat, hosts: configuredHosts(o), remoteBin: o["@sentinela_remote_bin"],
+		lastPollRequested: now, binStat: binStat, hosts: configuredHosts(o), localHost: localHost, remoteBin: o["@sentinela_remote_bin"],
 		remotes: map[string]remoteResult{}, remotePending: map[string]bool{}, remoteRetry: map[string]time.Time{}}
 }
 
@@ -260,6 +264,13 @@ func (m model) allAgents() []Agent {
 			all = append(all, a)
 		}
 	}
+	if len(m.hosts) > 0 && m.localHost != "" {
+		// Every host uses the same group order, regardless of which one is
+		// local or when SSH results arrive. Stable sort keeps pane order.
+		sort.SliceStable(all, func(i, j int) bool {
+			return sessionGroupName(all[i], m.localHost) < sessionGroupName(all[j], m.localHost)
+		})
+	}
 	return all
 }
 
@@ -342,7 +353,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the release when the press first focused an inactive sidebar.
 		if msg.Action == tea.MouseActionRelease &&
 			(msg.Button == tea.MouseButtonLeft || msg.Button == tea.MouseButtonNone) {
-			if i := agentAtRow(sessionGroups(m.agents), msg.Y); i >= 0 {
+			if i := agentAtRow(sessionGroups(m.agents, m.localHostIfMultihost()), msg.Y); i >= 0 {
 				m.moveCursor(i)
 				return m, m.jumpCommand(m.agents[i])
 			}
@@ -635,15 +646,31 @@ type sessionGroup struct {
 	agents []int // indices into model.agents; cursor and selection remain agent-based
 }
 
-// sessionGroups preserves tmux's first-seen session order and pane order within it.
-func sessionGroups(agents []Agent) []sessionGroup {
+func (m model) localHostIfMultihost() string {
+	if len(m.hosts) > 0 {
+		return m.localHost
+	}
+	return ""
+}
+
+func sessionGroupName(agent Agent, localHost string) string {
+	host := agent.Host
+	if host == "" {
+		host = localHost
+	}
+	if host != "" {
+		return host + "/" + agent.Pane.Session
+	}
+	return agent.Pane.Session
+}
+
+// sessionGroups keeps pane order within a session; allAgents sorts groups
+// first when multiple hosts are configured.
+func sessionGroups(agents []Agent, localHost string) []sessionGroup {
 	var groups []sessionGroup
 	byName := make(map[string]int)
 	for i, agent := range agents {
-		name := agent.Pane.Session
-		if agent.Host != "" {
-			name = agent.Host + "/" + name
-		}
+		name := sessionGroupName(agent, localHost)
 		group, ok := byName[name]
 		if !ok {
 			group = len(groups)
@@ -713,7 +740,7 @@ func (m model) View() string {
 		return b.String()
 	}
 
-	for groupIndex, group := range sessionGroups(m.agents) {
+	for groupIndex, group := range sessionGroups(m.agents, m.localHostIfMultihost()) {
 		if groupIndex > 0 {
 			b.WriteByte('\n')
 		}

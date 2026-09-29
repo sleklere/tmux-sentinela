@@ -165,6 +165,7 @@ func TestRemoteAttachSelectWithTwoTmuxServers(t *testing.T) {
 	remoteRun("-f", "/dev/null", "new-session", "-d", "-s", "dev", "-x", "120", "-y", "35", "sleep 300")
 	t.Cleanup(func() { exec.Command("tmux", "-S", remoteSocket, "kill-server").Run() })
 	remotePane := remoteRun("new-window", "-d", "-t", "dev:", "-P", "-F", "#{pane_id}", "sleep 300")
+	otherPane := remoteRun("new-window", "-d", "-t", "dev:", "-P", "-F", "#{pane_id}", "sleep 300")
 	// SSH stand-in: run the exact remote command chain on an independent tmux
 	// server, without requiring a live sshd or touching user sessions.
 	sshLog := filepath.Join(t.TempDir(), "ssh-log")
@@ -172,7 +173,7 @@ func TestRemoteAttachSelectWithTwoTmuxServers(t *testing.T) {
 printf '%%s\n' "$cmd" >> %s
 cmd=$(printf '%%s' "$cmd" | sed "s|'tmux'|tmux -S %s|g")
 printf 'running: %%s\n' "$cmd" >> %s
-TMUX= sh -c "$cmd" 2>> %s`, shellQuote(sshLog), remoteSocket, shellQuote(sshLog), shellQuote(sshLog)))
+LC_ALL=C TMUX= sh -c "$cmd" 2>> %s`, shellQuote(sshLog), remoteSocket, shellQuote(sshLog), shellQuote(sshLog)))
 	localRun := isolatedTmux(t)
 	localRun("set-option", "-g", "remain-on-exit", "on")
 	localSocket := strings.Split(os.Getenv("TMUX"), ",")[0]
@@ -230,6 +231,37 @@ TMUX= sh -c "$cmd" 2>> %s`, shellQuote(sshLog), remoteSocket, shellQuote(sshLog)
 	}
 	if tty := remoteRun("show-option", "-sqv", "@sentinela_client_"+token); !strings.HasPrefix(tty, "/dev/") {
 		t.Fatalf("remote PTY not registered for local pane: %q", tty)
+	}
+	log, err := os.ReadFile(sshLog)
+	if err != nil || !strings.Contains(string(log), "'-u' 'attach-session'") {
+		t.Fatalf("remote tmux client must force UTF-8: %v: %s", err, log)
+	}
+	if got := remoteRun("list-clients", "-t", "dev", "-F", "#{client_utf8}"); got != "1" {
+		t.Fatalf("remote client lost icons under ASCII locale: utf8=%q", got)
+	}
+	// Exercise repeated agent jumps against the real attached client on an
+	// isolated server. Selecting a pane in an inactive window must not show
+	// the previous agent before the destination window becomes visible.
+	remoteTTY := remoteRun("show-option", "-sqv", "@sentinela_client_"+token)
+	for _, target := range []struct {
+		pane   string
+		window int
+	}{{otherPane, 2}, {remotePane, 1}, {otherPane, 2}, {remotePane, 1}} {
+		a.Pane.ID, a.Pane.WindowIndex = target.pane, target.window
+		selection := remoteSelectionForClient(a, remoteTTY)
+		cmd := exec.Command("ssh", append(sshArgs("dojo", false), selection)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("select agent in window %d: %v: %s", target.window, err, out)
+		}
+		if got := remoteRun("display-message", "-p", "-c", remoteTTY, "#{window_index} #{pane_id}"); got != fmt.Sprintf("%d %s", target.window, target.pane) {
+			t.Fatalf("remote jump landed on %q, want window %d pane %s", got, target.window, target.pane)
+		}
+	}
+	if got := remoteRun("list-clients", "-t", "dev", "-F", "#{client_tty}"); got != remoteTTY {
+		t.Fatalf("jump created a second remote client: %q", got)
+	}
+	if got, err := listPanes(); err != nil || len(got) != 2 {
+		t.Fatalf("jump created another local pane: %v, %+v", err, got)
 	}
 	// The SSH stand-in is a shell script, not a process named ssh; check
 	// the real process reuse predicate independently below.

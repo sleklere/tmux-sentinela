@@ -557,7 +557,7 @@ func TestSessionGroupsAndMouseRows(t *testing.T) {
 		{Pane: Pane{Session: "general"}},
 		{Pane: Pane{Session: "code"}},
 	}
-	groups := sessionGroups(agents)
+	groups := sessionGroups(agents, "")
 	if len(groups) != 2 || groups[0].name != "code" || groups[1].name != "general" ||
 		len(groups[0].agents) != 2 || groups[0].agents[0] != 0 || groups[0].agents[1] != 2 {
 		t.Fatalf("groups = %+v", groups)
@@ -580,9 +580,55 @@ func TestSessionGroupsKeepHostsSeparate(t *testing.T) {
 		{Host: "argos", Pane: Pane{Session: "work"}},
 		{Host: "dev", Pane: Pane{Session: "work"}},
 	}
-	groups := sessionGroups(agents)
+	groups := sessionGroups(agents, "")
 	if len(groups) != 3 || groups[0].name != "work" || groups[1].name != "argos/work" || groups[2].name != "dev/work" {
 		t.Fatalf("groups = %+v", groups)
+	}
+}
+
+func TestMultiHostSessionsKeepOrderAcrossHosts(t *testing.T) {
+	isolateState(t)
+	agents := []Agent{
+		{Key: "argos:work", Host: "argos", Pane: Pane{Session: "work"}},
+		{Key: "dev:work", Host: "dev", Pane: Pane{Session: "work"}},
+		{Key: "dojo:general", Host: "dojo", Pane: Pane{Session: "general"}},
+	}
+	var orders [][]string
+	for _, localHost := range []string{"dojo", "dev", "argos"} {
+		m := testModel()
+		m.hosts = []string{"dojo", "dev", "argos"}
+		m.localHost = localHost
+		for _, a := range agents {
+			if a.Host == localHost {
+				a.Host = ""
+				m.local = append(m.local, a)
+			}
+		}
+		m.remotes = make(map[string]remoteResult)
+		for i := len(agents) - 1; i >= 0; i-- {
+			if agents[i].Host != localHost {
+				r := m.remotes[agents[i].Host]
+				r.agents = append(r.agents, agents[i])
+				m.remotes[agents[i].Host] = r
+			}
+		}
+		m.agents = m.allAgents()
+		var order []string
+		for _, a := range m.agents {
+			order = append(order, a.Key)
+		}
+		orders = append(orders, order)
+		groups := sessionGroups(m.agents, m.localHostIfMultihost())
+		for i, name := range []string{"argos/work", "dev/work", "dojo/general"} {
+			if groups[i].name != name || agentAtRow(groups, 3+i*4) != i {
+				t.Fatalf("on %s group %d = %+v", localHost, i, groups)
+			}
+		}
+	}
+	for _, order := range orders {
+		if strings.Join(order, ",") != "argos:work,dev:work,dojo:general" {
+			t.Fatalf("host-dependent navigation order: %v", orders)
+		}
 	}
 }
 
