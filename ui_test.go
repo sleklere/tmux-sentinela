@@ -290,6 +290,35 @@ func TestKeyboardNavigation(t *testing.T) {
 	}
 }
 
+func TestMouseReleaseJumpsOnlyOnce(t *testing.T) {
+	isolateState(t)
+	m := testModel()
+	m.agents = []Agent{{Key: "claude:100", Pane: Pane{ID: "%1"}}}
+	// tmux can deliver both events when this sidebar already has focus.
+	pressed, cmd := m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, Y: 3})
+	if cmd != nil || readSelection() != "" {
+		t.Fatal("mouse press jumped before release")
+	}
+	_, cmd = pressed.(model).Update(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, Y: 3})
+	if cmd == nil || readSelection() != "claude:100" {
+		t.Fatal("mouse release did not jump")
+	}
+}
+
+func TestRemoteUpdateKeepsSharedSelection(t *testing.T) {
+	isolateState(t)
+	m := testModel()
+	m.hosts = []string{"dev"}
+	m.window, m.active = "@sidebar", true
+	m.agents = []Agent{{Key: "claude:a"}, {Key: "remote:dev:claude:b"}}
+	m.cursor, m.selection = 1, "remote:dev:claude:b"
+	writeSelection(m.selection)
+	updated, _ := m.Update(remoteResult{host: "dev", at: time.Now(), agents: []Agent{{Key: m.selection, Host: "dev"}}})
+	if got := updated.(model).selection; got != m.selection {
+		t.Fatalf("remote update changed selection from %q to %q", m.selection, got)
+	}
+}
+
 func TestPollFollowsActivePaneBeforeCurrentWindow(t *testing.T) {
 	isolateState(t)
 	m := testModel()

@@ -310,7 +310,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			saveRemote(msg)
 		}
 		m.applyPoll(pollMsg{agents: m.local, localPanes: m.localPanes, leader: m.leader,
-			window: m.window, active: m.active,
+			window: m.window, active: m.active, sel: readSelection(),
 			sidebarFocused: m.sidebarFocused, layout: m.layout})
 	case pollMsg:
 		if msg.sequence < m.appliedSequence {
@@ -338,11 +338,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.pollRemotes(time.Now())
 	case tea.MouseMsg:
-		// Press and release both count: when the sidebar pane is inactive,
-		// tmux uses the press to focus it and only forwards the release.
-		press := msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft
-		release := msg.Action == tea.MouseActionRelease
-		if press || release {
+		// tmux may forward both halves of an active-pane click, but only
+		// the release when the press first focused an inactive sidebar.
+		if msg.Action == tea.MouseActionRelease &&
+			(msg.Button == tea.MouseButtonLeft || msg.Button == tea.MouseButtonNone) {
 			if i := agentAtRow(sessionGroups(m.agents), msg.Y); i >= 0 {
 				m.moveCursor(i)
 				return m, m.jumpCommand(m.agents[i])

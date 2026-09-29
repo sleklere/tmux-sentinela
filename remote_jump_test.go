@@ -59,7 +59,7 @@ func TestRemoteClientTTYSelection(t *testing.T) {
 	if tty := remoteClientForPane(a, "%0"); tty != "/dev/pts/13" {
 		t.Fatalf("client tty = %q", tty)
 	}
-	want := "'tmux' 'switch-client' '-c' '/dev/pts/13' '-t' 'dev:2' && 'tmux' 'select-pane' '-t' '%9'"
+	want := "'tmux' 'select-pane' '-t' '%9' && 'tmux' 'switch-client' '-c' '/dev/pts/13' '-t' 'dev:2'"
 	if got := remoteSelectionForClient(a, "/dev/pts/13"); got != want {
 		t.Fatalf("client selection = %q", got)
 	}

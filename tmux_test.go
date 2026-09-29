@@ -46,6 +46,21 @@ func isolatedTmux(t *testing.T) func(...string) string {
 	return run
 }
 
+func TestJumpSelectsWorkPaneBeforeShowingWindow(t *testing.T) {
+	run := isolatedTmux(t)
+	work := run("new-window", "-d", "-t", "test:", "-P", "-F", "#{pane_id}", "sleep 300")
+	bar := run("split-window", "-d", "-t", work, "-P", "-F", "#{pane_id}", "sleep 300")
+	run("select-pane", "-t", bar)
+	run("select-window", "-t", "@0")
+	run("set-hook", "-g", "after-select-window[80]", "set-option -gF @jump_observed '#{pane_id}'")
+	if err := jumpTo(work); err != nil {
+		t.Fatal(err)
+	}
+	if got := run("show-option", "-gqv", "@jump_observed"); got != work {
+		t.Fatalf("window briefly displayed pane %s instead of target %s", got, work)
+	}
+}
+
 func TestListPanesWithoutTMUXOverDefaultSocket(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux is not installed")

@@ -169,21 +169,21 @@ func jumpTo(paneID string) error {
 	if !ok {
 		return fmt.Errorf("tmux pane %s: missing session/window", paneID)
 	}
-	for _, args := range [][]string{
-		{"switch-client", "-t", session},
-		{"select-window", "-t", window},
-		{"select-pane", "-t", paneID},
-	} {
-		if _, err := tmux(args...); err != nil {
-			// A detached integration server has no client to switch. The
-			// window/pane selection still applies for its next attach.
-			if args[0] == "switch-client" {
-				if clients, listErr := tmux("list-clients", "-F", "#{client_tty}"); listErr != nil || clients == "" {
-					continue
-				}
+	// Select the destination pane before changing the visible window. This
+	// avoids an intermediate frame focused on that window's old active pane.
+	if _, err := tmux("select-pane", "-t", paneID); err != nil {
+		return fmt.Errorf("tmux select-pane %s: %w", paneID, err)
+	}
+	if _, err := tmux("switch-client", "-t", session+":"+window); err != nil {
+		// A detached integration server has no client to switch. Select the
+		// window for its next attach instead.
+		if clients, listErr := tmux("list-clients", "-F", "#{client_tty}"); listErr != nil || clients == "" {
+			if _, err := tmux("select-window", "-t", window); err != nil {
+				return fmt.Errorf("tmux select-window %s: %w", window, err)
 			}
-			return fmt.Errorf("tmux %s: %w", strings.Join(args, " "), err)
+			return nil
 		}
+		return fmt.Errorf("tmux switch-client %s:%s: %w", session, window, err)
 	}
 	return nil
 }

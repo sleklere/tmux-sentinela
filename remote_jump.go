@@ -123,13 +123,13 @@ func suppressLocalSidebar(paneID string) error {
 }
 
 func remoteSelection(a Agent) string {
-	return remoteCommand("tmux", "select-window", "-t", fmt.Sprintf("%s:%d", a.Pane.Session, a.Pane.WindowIndex)) +
-		" && " + remoteCommand("tmux", "select-pane", "-t", a.Pane.ID)
+	return remoteCommand("tmux", "select-pane", "-t", a.Pane.ID) +
+		" && " + remoteCommand("tmux", "select-window", "-t", fmt.Sprintf("%s:%d", a.Pane.Session, a.Pane.WindowIndex))
 }
 
 func remoteSelectionForClient(a Agent, tty string) string {
-	return remoteCommand("tmux", "switch-client", "-c", tty, "-t", fmt.Sprintf("%s:%d", a.Pane.Session, a.Pane.WindowIndex)) +
-		" && " + remoteCommand("tmux", "select-pane", "-t", a.Pane.ID)
+	return remoteCommand("tmux", "select-pane", "-t", a.Pane.ID) +
+		" && " + remoteCommand("tmux", "switch-client", "-c", tty, "-t", fmt.Sprintf("%s:%d", a.Pane.Session, a.Pane.WindowIndex))
 }
 
 func remoteClientForPane(a Agent, paneID string) string {
