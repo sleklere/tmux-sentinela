@@ -27,6 +27,14 @@ key=$(tmux show-option -gqv @sentinela_key); key=${key:-a}
 tmux bind-key "$key" run-shell "'$BIN' toggle '#{window_id}'"
 tmux bind-key Space run-shell "'$BIN' next-layout '#{window_id}'"
 
+# In an attach window created by Sentinela, send the prefix and c to the
+# remote tmux. Everywhere else c keeps its usual local meaning. M-c always
+# creates a local window, even while the remote client has focus.
+if [ -n "$(tmux show-option -gqv @sentinela_hosts)" ]; then
+	tmux bind-key c if-shell -F '#{&&:#{@sentinela_remote_host},#{==:#{pane_current_command},ssh}}' 'send-prefix ; send-keys c' 'new-window'
+	tmux bind-key M-c new-window
+fi
+
 # Keep window/session changes from restoring focus to a sidebar. Direct pane
 # navigation and clicks may still focus it so its keyboard controls work.
 focus_guard="if-shell -F '#{&&:#{@sentinela_sidebar},#{||:#{==:#{mouse_any_flag},0},#{!=:#{mouse_pane},#{pane_id}}}}' 'select-pane -l'"

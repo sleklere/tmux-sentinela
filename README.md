@@ -85,6 +85,8 @@ session, after installing or updating Sentinela.
 |---|---|
 | `prefix + a` | toggle the sidebar of the current window |
 | `prefix + Space` | cycle layouts while keeping the sidebar on the left |
+| `prefix + c` | create a remote tmux window in a Sentinela SSH attach pane; otherwise create a local window (when hosts are configured) |
+| `prefix + Alt-c` | always create a local window, including in a remote attach pane (when hosts are configured) |
 | `j` / `k`, `↑` / `↓` | move the cursor (inside the sidebar) |
 | `Enter`, `l`, click | jump to the agent's pane |
 | `q` | close the sidebar |
@@ -195,7 +197,12 @@ selects the window for that specific client and then selects the pane. If the
 mapping is missing or ambiguous, it opens another attach window rather than
 moving an unrelated remote client. An unmarked SSH pane cannot be mapped to a
 remote `client_tty` from local tmux metadata alone. An offline cached row
-cannot be jumped to until the host responds again.
+cannot be jumped to until the host responds again. The `prefix + c` shortcut
+forwards the local tmux prefix to an active Sentinela SSH attach, then `c`;
+configured hosts must use the same tmux prefix as the local machine. Use
+`prefix + Alt-c` to open a local window while the attach pane has focus.
+Other tmux shortcuts still belong to the local tmux unless explicitly passed
+through.
 
 For configured hosts, hook-backed pull is authoritative: an SSH pane targeting
 one of those aliases is not screen-captured. Visual detection remains for
